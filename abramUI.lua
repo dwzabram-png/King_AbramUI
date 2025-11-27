@@ -1,26 +1,19 @@
 -- ===============================================
--- 👑 KING LEGACY AUTO FARM (ABRAM UI RED - PART 1)
--- COPY THIS PART FIRST
+-- 👑 KING LEGACY - ABRAM UI (PART 1: UI LIBRARY)
+-- UI Source: gui.txt (Modified to Red Theme)
 -- ===============================================
 
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
-local HttpService = game:GetService("HttpService")
-local VirtualUser = game:GetService("VirtualUser")
-local UserInputService = game:GetService("UserInputService")
 local CoreGui = game:GetService("CoreGui")
-
 local player = Players.LocalPlayer
+
 if not player then return end
 
--- ===============================================
--- 🎨 UI LIBRARY (CFAHub - RED EDITION)
--- ===============================================
+-- Обертка для библиотеки, чтобы не засорять глобальную область
 local Library = (function()
     local CFAHub = {}
-
+    
+    -- Ждем загрузку игры
     if not game:IsLoaded() then game.Loaded:Wait() end
 
     local Tween = game:GetService("TweenService")
@@ -28,9 +21,9 @@ local Library = (function()
     local Input = game:GetService("UserInputService")
     local Run = game:GetService("RunService")
     local Utility = {}
-    local Objects = {}
     local Animate = {}
 
+    -- Вспомогательные функции UI
     function Utility:TweenObject(obj, properties, duration, ...)
         Tween:Create(obj, Tweeninfo(duration, ...), properties):Play()
     end
@@ -63,7 +56,7 @@ local Library = (function()
 
     function Animate:CreateGradient(object)
         local UIGradient = Instance.new("UIGradient")
-        UIGradient.Color = ColorSequence.new{ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 255, 255)), ColorSequenceKeypoint.new(1.00, Color3.fromRGB(209, 209, 209))}
+        UIGradient.Color = ColorSequence.new{ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 255, 255)), ColorSequenceKeypoint.new(1.00, Color3.fromRGB(200, 200, 200))}
         UIGradient.Rotation = 25
         UIGradient.Parent = object
     end
@@ -79,17 +72,13 @@ local Library = (function()
                 mousePos = input.Position
                 framePos = parent.Position
                 input.Changed:Connect(function()
-                    if input.UserInputState == Enum.UserInputState.End then
-                        dragging = false
-                    end
+                    if input.UserInputState == Enum.UserInputState.End then dragging = false end
                 end)
             end
         end)
 
         frame.InputChanged:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseMovement then
-                dragInput = input
-            end
+            if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end
         end)
 
         Input.InputChanged:Connect(function(input)
@@ -100,27 +89,28 @@ local Library = (function()
         end)
     end
 
-    local GuiName = "CFAHub_AbramUI_Red_Final"
+    local GuiName = "abramUI_Red_v1"
 
     function CFAHub:CreateWindow(title, gameName)
-        -- RED THEME SETTINGS
-        local themes = {
-            SchemaColor = Color3.fromRGB(220, 20, 60), -- Crimson Red
-            TextColor = Color3.fromRGB(255, 255, 255),
-            Header = Color3.fromRGB(22, 22, 22),
-            Container = Color3.fromRGB(34, 34, 34),
-            Background = Color3.fromRGB(22, 22, 22),
-            Slider = Color3.fromRGB(15, 15, 15),
-            Drop = Color3.fromRGB(28, 28, 28),
-            ScrollBar = Color3.fromRGB(149, 149, 149),
-            NotiBackground = Color3.fromRGB(15, 15, 15),
-            Glow = Color3.fromRGB(220, 20, 60),
-            Logo = "rbxassetid://8964489645"
-        }
-
+        -- УДАЛЯЕМ СТАРЫЙ GUI
         for _, v in pairs(CoreGui:GetChildren()) do
             if v:IsA("ScreenGui") and v.Name == GuiName then v:Destroy() end
         end
+
+        -- 🔴 КРАСНАЯ ТЕМА (RED THEME)
+        local themes = {
+            SchemaColor = Color3.fromRGB(255, 0, 0), -- Ярко-красный
+            TextColor = Color3.fromRGB(255, 255, 255),
+            Header = Color3.fromRGB(20, 20, 20),
+            Container = Color3.fromRGB(30, 30, 30),
+            Background = Color3.fromRGB(25, 25, 25),
+            Slider = Color3.fromRGB(40, 40, 40),
+            Drop = Color3.fromRGB(35, 35, 35),
+            ScrollBar = Color3.fromRGB(255, 0, 0),
+            NotiBackground = Color3.fromRGB(10, 10, 10),
+            Glow = Color3.fromRGB(255, 0, 0),
+            Logo = "rbxassetid://8964489645" -- Твой логотип
+        }
 
         local CFAHubGui = Instance.new("ScreenGui")
         CFAHubGui.Name = GuiName
@@ -135,7 +125,6 @@ local Library = (function()
         local ElementCorner = Instance.new("UICorner")
         local Header = Instance.new("Frame")
         local HeaderCorner = Instance.new("UICorner")
-        local coverup = Instance.new("Frame")
         local logo = Instance.new("ImageLabel")
         local Title = Instance.new("TextLabel")
         local TabFrame = Instance.new("Frame")
@@ -145,7 +134,7 @@ local Library = (function()
         local ShadowBlue = Instance.new("ImageLabel")
         local UIPageLayout = Instance.new("UIPageLayout")
 
-        -- NOTIFICATIONS
+        -- NOTIFICATION SYSTEM
         local CurrentAlert = Instance.new("Frame")
         local UIListLayout = Instance.new("UIListLayout")
         UIListLayout.Parent = CurrentAlert
@@ -244,12 +233,6 @@ local Library = (function()
         Header.Size = UDim2.new(0, 673, 0, 29)
         HeaderCorner.CornerRadius = UDim.new(0, 4)
         HeaderCorner.Parent = Header
-
-        coverup.Parent = Header
-        coverup.BackgroundColor3 = themes.Header
-        coverup.BorderSizePixel = 0
-        coverup.Position = UDim2.new(0, 0, 0.75, 0)
-        coverup.Size = UDim2.new(1, 0, 0, 7)
 
         logo.Parent = Header
         logo.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -630,8 +613,7 @@ local Library = (function()
         return Tabs
     end
     return CFAHub
-end)()
--- ===============================================
+end)()-- ===============================================
 -- 👑 KING LEGACY AUTO FARM (ABRAM UI RED - PART 2)
 -- PASTE THIS BELOW PART 1
 -- ===============================================
@@ -694,7 +676,7 @@ local Config = {
 }
 
 local function GetConfigFilename()
-    return "AbramCFG_" .. player.Name .. "_v9_FinalRed.json"
+    return "AbramCFG_" .. player.Name .. "_v10_RedFinal.json"
 end
 
 local function SaveConfig()
