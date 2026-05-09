@@ -91,8 +91,27 @@ local function getGameplayFolder()
 	return nil
 end
 
+local function toggleNoclip(value)
+	if value then
+		if _G.NoclipConn then _G.NoclipConn:Disconnect() end
+		_G.NoclipConn = RunService.Stepped:Connect(function()
+			if not client then return end
+			for _, part in ipairs(client:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.CanCollide = false
+				end
+			end
+		end)
+	else
+		if _G.NoclipConn then
+			_G.NoclipConn:Disconnect()
+			_G.NoclipConn = nil
+		end
+	end
+end
+
 local function Kill()
-	if not clientHRP then return end
+	if not clientHRP or not State.AutoKill then return end
 	local gameplay = getGameplayFolder()
 	local enemies = gameplay and gameplay:FindFirstChild("Enemies")
 	if not enemies then return end
@@ -101,7 +120,6 @@ local function Kill()
 	local minDist = math.huge
 	
 	for _, enemy in ipairs(enemies:GetChildren()) do
-		-- prioritizing 'RootPart' as specified by user
 		local hrp = enemy:FindFirstChild("RootPart") or enemy:FindFirstChild("HumanoidRootPart") or enemy:FindFirstChild("PrimaryPart")
 		if hrp then
 			local dist = (clientHRP.Position - hrp.Position).Magnitude
@@ -113,8 +131,10 @@ local function Kill()
 	end
 	
 	if target then
-		-- Teleport to enemy
-		clientHRP.CFrame = target.CFrame * CFrame.new(0, 0, 3)
+		-- Smooth fly/move towards target
+		local targetPos = target.CFrame * CFrame.new(0, 0, 3)
+		clientHRP.CFrame = clientHRP.CFrame:Lerp(targetPos, 0.15) -- 0.15 for smooth but fast speed
+		clientHRP.AssemblyLinearVelocity = Vector3.new(0,0,0) -- Stop physics from interfering
 	end
 end
 
@@ -288,9 +308,9 @@ local FEATURES = {
 		action = function() TeleportBestZone() end
 	},
 	AutoKill = {
-		kind = "task_loop",
-		getInterval = function() return 0.1 end,
-		action = function() Kill() end
+		kind = "rbx_connection",
+		getSignal = function() return RunService.Heartbeat end,
+		callback = function() Kill() end
 	},
 	AutoUpgrade = {
 		kind = "task_loop",
@@ -338,12 +358,16 @@ local function stopFeature(name)
 		pcall(handle.Disconnect, handle)
 	end
 	activeFeatures[name] = nil
+	
+	if name == "AutoKill" then toggleNoclip(false) end
 end
 
 local function startFeature(name)
 	stopFeature(name)
 	local cfg = FEATURES[name]
 	if not cfg then return end
+
+	if name == "AutoKill" then toggleNoclip(true) end
 
 	if cfg.kind == "task_loop" then
 		local thread = task.spawn(function()
