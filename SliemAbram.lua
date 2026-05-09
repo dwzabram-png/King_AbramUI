@@ -464,13 +464,14 @@ local function createToggle(parentPage, label, key)
 	btn.Text = label .. ": OFF"
 	btn.AutoButtonColor = true
 	btn.Parent = parentPage
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, 6)
-	c.Parent = btn
 	btn.MouseButton1Click:Connect(function()
 		local newValue = not State[key]
 		toggleFeature(key, newValue)
 		btn.Text = label .. ": " .. (State[key] and "ON" or "OFF")
+		local targetColor = State[key] and Color3.fromRGB(130, 28, 42) or Color3.fromRGB(50, 12, 18)
+		TweenService:Create(btn, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			BackgroundColor3 = targetColor
+		}):Play()
 	end)
 end
 
@@ -499,20 +500,36 @@ local function createInput(parentPage, label, defaultValue, onChanged)
 	box.TextSize = 12
 	box.ClearTextOnFocus = false
 	box.Parent = container
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, 6)
-	c.Parent = box
 	box.FocusLost:Connect(function()
 		onChanged(box.Text)
+		TweenService:Create(box, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			BackgroundColor3 = Color3.fromRGB(60, 14, 20)
+		}):Play()
+		task.delay(0.12, function()
+			if box and box.Parent then
+				TweenService:Create(box, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+					BackgroundColor3 = Color3.fromRGB(40, 9, 14)
+				}):Play()
+			end
+		end)
 	end)
 end
 
 local function setActiveTab(name)
 	for pageName, page in pairs(pages) do
 		page.Visible = (pageName == name)
+		if page.Visible then
+			page.ScrollBarImageTransparency = 1
+			TweenService:Create(page, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				ScrollBarImageTransparency = 0.2
+			}):Play()
+		end
 	end
 	for tabName, btn in pairs(tabButtons) do
-		btn.BackgroundColor3 = tabName == name and Color3.fromRGB(120, 24, 36) or Color3.fromRGB(60, 12, 19)
+		local targetColor = tabName == name and Color3.fromRGB(120, 24, 36) or Color3.fromRGB(60, 12, 19)
+		TweenService:Create(btn, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			BackgroundColor3 = targetColor
+		}):Play()
 	end
 end
 
@@ -526,9 +543,6 @@ local function createTabButton(name)
 	btn.Text = name
 	btn.AutoButtonColor = true
 	btn.Parent = tabsBar
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, 6)
-	c.Parent = btn
 	btn.MouseButton1Click:Connect(function()
 		setActiveTab(name)
 	end)
@@ -591,14 +605,23 @@ local expandedSize = UDim2.new(0, 380, 0, 500)
 local minimizedSize = UDim2.new(0, 380, 0, 38)
 local minimized = false
 local uiTweenInfo = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local fadeTweenInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
-	if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.LeftAlt then
+	if input.UserInputType == Enum.UserInputType.Keyboard and (input.KeyCode == Enum.KeyCode.LeftAlt or input.KeyCode == Enum.KeyCode.RightAlt) then
 		minimized = not minimized
 		local goal = minimized and minimizedSize or expandedSize
 		TweenService:Create(main, uiTweenInfo, { Size = goal }):Play()
+		TweenService:Create(main, fadeTweenInfo, { BackgroundTransparency = minimized and 0.12 or 0 }):Play()
 	end
 end)
+
+main.Size = minimizedSize
+main.BackgroundTransparency = 0.12
+TweenService:Create(main, TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+	Size = expandedSize,
+	BackgroundTransparency = 0
+}):Play()
 
 Notify("AbramSliem", "Loaded successfully.")
