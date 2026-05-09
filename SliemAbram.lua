@@ -738,7 +738,6 @@ local function createToggle(parentPage, label, key)
 -- Устанавливаем начальное визуальное состояние без анимации
 	setVisual(State[key], false)
 end
-end
 
 local function createInput(parentPage, label, defaultValue, onChanged)
 	local row = Instance.new("Frame")
