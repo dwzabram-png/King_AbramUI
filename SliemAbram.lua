@@ -504,6 +504,9 @@ closeBtn.MouseButton1Click:Connect(function()
 	}):Play()
 	TweenService:Create(shadow, TweenInfo.new(0.25), { ImageTransparency = 1 }):Play()
 	task.delay(0.28, function()
+		for key, value in pairs(State) do
+			if value then toggleFeature(key, false) end
+		end
 		screenGui:Destroy()
 	end)
 end)
