@@ -47,20 +47,50 @@ local Config = {
 	WebhookInterval = 30
 }
 
--- Безопасный поиск _remotes (перебор папок, не зависит от порядка и имени библиотеки)
+-- Безопасный поиск _remotes (без долгих ожиданий и зависаний)
 local RemotesFolder = nil
-pcall(function()
-	local packages = ReplicatedStorage:WaitForChild("Packages", 10)
-	local index = packages:WaitForChild("_Index", 10)
+local function findRemotes()
+	local packages = ReplicatedStorage:FindFirstChild("Packages")
+	if not packages then return nil end
+	local index = packages:FindFirstChild("_Index")
+	if not index then return nil end
 	for _, folder in ipairs(index:GetChildren()) do
 		if folder:IsA("Folder") then
 			local nw = folder:FindFirstChild("networker")
 			if nw then
 				local remotes = nw:FindFirstChild("_remotes")
-				if remotes then
-					RemotesFolder = remotes
-					break
-				end
+				if remotes then return remotes end
+			end
+		end
+	end
+	return nil
+end
+RemotesFolder = findRemotes()
+
+local function callRemote(service, method, ...)
+	if not RemotesFolder then
+		Notify("Remote Error", "RemotesFolder not found")
+		return false
+	end
+	local remote = RemotesFolder:FindFirstChild(service)
+	if not remote then
+		Notify("Remote Error", "Service " .. service .. " not found")
+		return false
+	end
+	local func = remote:FindFirstChild("RemoteFunction")
+	if not func then
+		Notify("Remote Error", "RemoteFunction not found in " .. service)
+		return false
+	end
+	
+	-- Передаем varargs правильно через pcall, чтобы избежать ошибки "cannot use '...' outside a vararg function"
+	local ok, result = pcall(func.InvokeServer, func, method, ...)
+	if not ok then
+		Notify("Remote Error", tostring(result))
+		return false
+	end
+	return true, result
+end
 			end
 		end
 	end
@@ -371,7 +401,7 @@ local function startFeature(name)
 	if not cfg then return end
 
 	if cfg.kind == "task_loop" then
-		local thread = spawn(function()
+		local thread = task.spawn(function()
 			while State[name] do
 				local ok, err = pcall(cfg.action)
 				if not ok then
@@ -453,7 +483,7 @@ end
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "AbramSliemGui"
 screenGui.ResetOnSpawn = false
-screenGui.Parent = gethui and gethui() or CoreGui
+screenGui.Parent = (gethui and gethui()) or localPlayer:WaitForChild("PlayerGui") or CoreGui
 
 local main = Instance.new("Frame")
 main.Size = UDim2.new(0, 360, 0, 480)
