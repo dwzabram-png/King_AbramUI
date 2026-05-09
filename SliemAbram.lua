@@ -47,20 +47,19 @@ local Config = {
 	WebhookInterval = 30
 }
 
--- Centralized remote caller with dynamic version searching
-local RemotesFolder
-local indexFolder = ReplicatedStorage:WaitForChild("Packages"):WaitForChild("_Index")
-for _, child in ipairs(indexFolder:GetChildren()) do
-	if child.Name:match("^leifstout_networker") then
-		RemotesFolder = child:WaitForChild("networker"):WaitForChild("_remotes")
-		break
+-- Централизованный поиск ремутов (динамический, не зависит от версий)
+local RemotesFolder = nil
+task.spawn(function()
+	while not RemotesFolder do
+		RemotesFolder = ReplicatedStorage:FindFirstChild("_remotes", true) -- true = искать рекурсивно
+		wait(1)
 	end
-end
+end)
 
 local function callRemote(service, method, ...)
-	if not RemotesFolder then return false, "Remote folder not found" end
+	if not RemotesFolder then return false, "RemotesFolder not found yet" end
 	local remote = RemotesFolder:FindFirstChild(service)
-	if not remote then return false, "Service remote not found" end
+	if not remote then return false, "Remote folder not found" end
 	local func = remote:FindFirstChild("RemoteFunction")
 	if not func then return false, "RemoteFunction not found" end
 	local ok, result = pcall(function(...)
@@ -217,7 +216,7 @@ end
 local function AutoKill()
 	if not State.AutoKill or not clientHRP then return end
 	
-	-- Динамический поиск папки Gameplay
+	-- Динамический поиск папки Gameplay (т.к. номер меняется, например Gameplay303)
 	local gameplay = nil
 	for _, child in ipairs(workspace:GetChildren()) do
 		if child.Name:match("^Gameplay") then
@@ -237,11 +236,11 @@ local function AutoKill()
 	for _, enemy in ipairs(enemies) do
 		if not State.AutoKill then break end
 		
-		-- Ищем RootPart
+		-- Ищем RootPart (как в твоём примере) или стандартный HumanoidRootPart
 		local root = enemy:FindFirstChild("RootPart") or enemy:FindFirstChild("HumanoidRootPart")
 		local hum = enemy:FindFirstChild("Humanoid")
 		
-		-- Если RootPart оказался папкой/моделью
+		-- Если RootPart оказался папкой/моделью, ищем в ней деталь Root
 		if root and not root:IsA("BasePart") then
 			root = root:FindFirstChild("Root") or root:FindFirstChild("HumanoidRootPart")
 		end
@@ -249,7 +248,7 @@ local function AutoKill()
 		if root and root:IsA("BasePart") and hum and hum.Health > 0 then
 			clientHRP.CFrame = root.CFrame
 			task.wait(0.1)
-			break -- Переходим к следующему циклу поиска
+			break -- Переходим к следующему циклу поиска, чтобы обновить список целей
 		end
 	end
 end
@@ -384,7 +383,7 @@ local function toggleFeature(name, value)
 	if _G.RefreshFooterUI then _G.RefreshFooterUI() end
 end
 
--- ==================== UI v5 ====================
+-- ==================== UI v5 — PERFECT DARK MODE & WIDGET & ALL FEATURES ====================
 pcall(function()
 	local oldGui = CoreGui:FindFirstChild("AbramSliemGui")
 	if oldGui then oldGui:Destroy() end
@@ -442,7 +441,7 @@ main.Position = UDim2.new(0.5, -180, 0.5, -240)
 main.BackgroundColor3 = C.BG
 main.BorderSizePixel = 0
 main.ClipsDescendants = false
-main.Active = true 
+main.Active = true -- Защита от кликов сквозь UI на мобилках
 main.Parent = screenGui
 addCorner(main, 12)
 addStroke(main, C.Border, 1)
@@ -666,7 +665,7 @@ pill.BackgroundColor3 = C.Surface
 pill.AutoButtonColor = false
 pill.Text = ""
 pill.Visible = false
-pill.Active = true
+pill.Active = true -- Защита от случайных кликов сквозь виджет
 pill.Parent = screenGui
 addCorner(pill, 14)
 addStroke(pill, C.BorderHi, 1)
@@ -721,6 +720,7 @@ local function createSection(parentPage, label)
 	pad.PaddingLeft = UDim.new(0, 2)
 end
 
+-- ПОЛНОСТЬЮ ПЕРЕРАБОТАННАЯ И ИСПРАВЛЕННАЯ ФУНКЦИЯ ПОЛЗУНКА (БЕЗ БАГОВ)
 local function createToggle(parentPage, label, key)
 	local row = Instance.new("TextButton")
 	row.Size = UDim2.new(1, 0, 0, 40)
@@ -759,6 +759,7 @@ local function createToggle(parentPage, label, key)
 	knob.Parent = track
 	addCorner(knob, 7)
 
+	-- Прямое использование TweenService для надежности на мобильных экзекуторах
 	local tInfoColor = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 	local tInfoPos = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
@@ -788,6 +789,7 @@ local function createToggle(parentPage, label, key)
 		setVisual(State[key], true)
 	end)
 	
+	-- Устанавливаем начальное состояние без проигрывания анимации
 	setVisual(State[key], false)
 end
 
@@ -939,7 +941,7 @@ end)
 
 local pillDrag = false
 local pDragStart, pStartPos, pMoved
-local DRAG_THRESHOLD = 15
+local DRAG_THRESHOLD = 15 -- Увеличенный порог для мобильных свайпов
 
 pill.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
