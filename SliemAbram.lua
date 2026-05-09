@@ -245,31 +245,6 @@ local function AutoKill()
 		end
 	end
 end
-	
-	local enemiesFolder = gameplay:FindFirstChild("Enemies")
-	if not enemiesFolder then 
-		Notify("AutoKill Error", "Папка Enemies не найдена в Gameplay73")
-		return 
-	end
-
-	local enemies = enemiesFolder:GetChildren()
-	if #enemies == 0 then
-		-- Чтобы не спамить уведомлениями, можно добавить таймер, но для теста оставим так
-		return 
-	end
-
-	for _, enemy in ipairs(enemies) do
-		if not State.AutoKill then break end
-		local hrp = enemy:FindFirstChild("HumanoidRootPart")
-		local hum = enemy:FindFirstChild("Humanoid")
-		
-		if hrp and hum and hum.Health > 0 then
-			clientHRP.CFrame = hrp.CFrame
-			task.wait(0.1) -- Короткая задержка для регистрации урона
-			break -- Убиваем одного и выходим, чтобы loop из FEATURES начал поиск заново
-		end
-	end
-end
 
 -- ==================== FEATURE CONFIGURATION ====================
 local FEATURES = {
