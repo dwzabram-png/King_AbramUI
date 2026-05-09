@@ -122,7 +122,7 @@ local function SendDiscordWebhook(url, data)
 		embeds = {{
 			title = data.title,
 			description = data.description,
-			color = 5814783,
+			color = 3447003, -- Blue color
 			footer = { text = "Plink Utils" },
 			timestamp = DateTime.now():ToIsoDate(),
 		}},
@@ -132,7 +132,7 @@ local function SendDiscordWebhook(url, data)
 		requestFn({
 			Url = url,
 			Method = "POST",
-			Headers = { ["Content-Type"] = "application/json" },
+			Headers = {["Content-Type"] = "application/json" },
 			Body = HttpService:JSONEncode(body)
 		})
 	end)
@@ -359,26 +359,26 @@ local function toggleFeature(name, value)
 end
 
 
--- ==================== UI v3 — modern dark + crimson ====================
+-- ==================== UI v3 — PERFECTED DARK MODE ====================
 pcall(function()
 	local oldGui = CoreGui:FindFirstChild("AbramSliemGui")
 	if oldGui then oldGui:Destroy() end
 end)
 
--- Palette: near-black surfaces, single crimson accent, green-for-ON
+-- Modern Zinc palette with Emerald and Blue accents
 local C = {
-	BG        = Color3.fromRGB(15, 15, 18),
-	Surface   = Color3.fromRGB(24, 24, 28),
-	SurfaceHi = Color3.fromRGB(36, 36, 42),
-	Border    = Color3.fromRGB(48, 48, 56),
-	BorderHi  = Color3.fromRGB(72, 72, 82),
-	Accent    = Color3.fromRGB(229, 56, 86),
-	AccentDim = Color3.fromRGB(150, 32, 54),
-	Text      = Color3.fromRGB(245, 245, 250),
-	TextDim   = Color3.fromRGB(160, 160, 170),
-	TextMuted = Color3.fromRGB(110, 110, 120),
-	Green     = Color3.fromRGB(80, 200, 120),
-	Track     = Color3.fromRGB(58, 58, 66),
+	BG        = Color3.fromRGB(9, 9, 11),       -- Zinc 950 (Deepest dark)
+	Surface   = Color3.fromRGB(24, 24, 27),     -- Zinc 900 (Main cards)
+	SurfaceHi = Color3.fromRGB(39, 39, 42),     -- Zinc 800 (Hover/Active states)
+	Border    = Color3.fromRGB(39, 39, 42),     -- Zinc 800 (Borders)
+	BorderHi  = Color3.fromRGB(63, 63, 70),     -- Zinc 700 (Lighter borders)
+	Accent    = Color3.fromRGB(59, 130, 246),   -- Blue 500 (Primary buttons)
+	AccentDim = Color3.fromRGB(37, 99, 235),    -- Blue 600 (Button clicks)
+	Text      = Color3.fromRGB(250, 250, 250),  -- Zinc 50  (Primary text)
+	TextDim   = Color3.fromRGB(161, 161, 170),  -- Zinc 400 (Secondary text)
+	TextMuted = Color3.fromRGB(113, 113, 122),  -- Zinc 500 (Labels, inactive)
+	Green     = Color3.fromRGB(16, 185, 129),   -- Emerald 500 (Active Toggles/Dots)
+	Track     = Color3.fromRGB(63, 63, 70),     -- Zinc 700 (Toggle OFF track)
 	Knob      = Color3.fromRGB(255, 255, 255),
 }
 
@@ -414,8 +414,8 @@ local parentGui = gethui and gethui() or CoreGui
 screenGui.Parent = parentGui
 
 local main = Instance.new("Frame")
-main.Size = UDim2.new(0, 360, 0, 460)
-main.Position = UDim2.new(0.5, -180, 0.5, -230)
+main.Size = UDim2.new(0, 360, 0, 480)
+main.Position = UDim2.new(0.5, -180, 0.5, -240)
 main.BackgroundColor3 = C.BG
 main.BorderSizePixel = 0
 main.ClipsDescendants = true
@@ -439,11 +439,11 @@ titleSep.BackgroundColor3 = C.Border
 titleSep.BorderSizePixel = 0
 titleSep.Parent = titleBar
 
--- accent dot
+-- status dot (Neutral until active)
 local dot = Instance.new("Frame")
 dot.Size = UDim2.new(0, 8, 0, 8)
 dot.Position = UDim2.new(0, 14, 0.5, -4)
-dot.BackgroundColor3 = C.Accent
+dot.BackgroundColor3 = C.TextMuted
 dot.BorderSizePixel = 0
 dot.Parent = titleBar
 addCorner(dot, 4)
@@ -454,25 +454,26 @@ title.Position = UDim2.new(0, 28, 0, 0)
 title.BackgroundTransparency = 1
 title.Font = Enum.Font.GothamBold
 title.Text = "AbramSliem"
-title.TextSize = 15
+title.TextSize = 14
 title.TextColor3 = C.Text
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = titleBar
 
--- "Alt" key chip — like a keyboard key
+-- "Alt toggle" chip (Fixed alignment)
 local kbdChip = Instance.new("Frame")
 kbdChip.AnchorPoint = Vector2.new(1, 0.5)
-kbdChip.Position = UDim2.new(1, -14, 0.5, 0)
-kbdChip.Size = UDim2.new(0, 70, 0, 22)
-kbdChip.BackgroundColor3 = C.SurfaceHi
+kbdChip.Position = UDim2.new(1, -12, 0.5, 0)
+kbdChip.Size = UDim2.new(0, 68, 0, 22)
+kbdChip.BackgroundColor3 = C.BG
 kbdChip.BorderSizePixel = 0
 kbdChip.Parent = titleBar
 addCorner(kbdChip, 4)
-addStroke(kbdChip, C.BorderHi, 1)
+addStroke(kbdChip, C.Border, 1)
 
 local kbdKey = Instance.new("TextLabel")
-kbdKey.Size = UDim2.new(0, 26, 1, 0)
-kbdKey.BackgroundColor3 = C.BG
+kbdKey.Size = UDim2.new(0, 22, 0, 16)
+kbdKey.Position = UDim2.new(0, 3, 0.5, -8)
+kbdKey.BackgroundColor3 = C.SurfaceHi
 kbdKey.BorderSizePixel = 0
 kbdKey.Font = Enum.Font.GothamBold
 kbdKey.Text = "Alt"
@@ -483,9 +484,9 @@ addCorner(kbdKey, 3)
 
 local kbdLabel = Instance.new("TextLabel")
 kbdLabel.Position = UDim2.new(0, 28, 0, 0)
-kbdLabel.Size = UDim2.new(1, -30, 1, 0)
+kbdLabel.Size = UDim2.new(1, -28, 1, 0)
 kbdLabel.BackgroundTransparency = 1
-kbdLabel.Font = Enum.Font.Gotham
+kbdLabel.Font = Enum.Font.GothamMedium
 kbdLabel.Text = "toggle"
 kbdLabel.TextSize = 10
 kbdLabel.TextColor3 = C.TextDim
@@ -493,9 +494,9 @@ kbdLabel.TextXAlignment = Enum.TextXAlignment.Left
 kbdLabel.Parent = kbdChip
 
 -- ===== Tab strip =====
-local TABS_TOP = TITLE_H + 8
-local TAB_H = 30
-local TABS_PAD = 10
+local TABS_TOP = TITLE_H + 10
+local TAB_H = 32
+local TABS_PAD = 12
 local tabNames = { "Main", "Upgrades", "Webhook" }
 
 local tabsBar = Instance.new("Frame")
@@ -520,8 +521,8 @@ local function setActiveTab(name)
 	for tabName, btn in pairs(tabButtons) do
 		local active = tabName == name
 		tw(btn, {
-			BackgroundColor3 = active and C.Accent or C.Surface,
-			TextColor3       = active and C.Text   or C.TextDim,
+			BackgroundColor3 = active and C.SurfaceHi or C.Surface, -- Clean active state, no harsh colors
+			TextColor3       = active and C.Text      or C.TextMuted,
 		})
 	end
 end
@@ -535,7 +536,7 @@ for i, tabName in ipairs(tabNames) do
 	btn.Font = Enum.Font.GothamBold
 	btn.Text = tabName
 	btn.TextSize = 12
-	btn.TextColor3 = C.TextDim
+	btn.TextColor3 = C.TextMuted
 	btn.Parent = tabsBar
 	addCorner(btn, 6)
 	btn.MouseButton1Click:Connect(function() setActiveTab(tabName) end)
@@ -543,12 +544,13 @@ for i, tabName in ipairs(tabNames) do
 end
 
 -- ===== Pages container =====
-local CONTENT_TOP = TABS_TOP + TAB_H + 10
-local FOOTER_H = 28
+local CONTENT_TOP = TABS_TOP + TAB_H + 12
+local FOOTER_H = 32
 local pagesContainer = Instance.new("Frame")
-pagesContainer.Size = UDim2.new(1, -TABS_PAD * 2, 1, -(CONTENT_TOP + FOOTER_H))
+pagesContainer.Size = UDim2.new(1, -TABS_PAD * 2, 1, -(CONTENT_TOP + FOOTER_H + 10)) -- Fixed spacing to prevent scrollbar clip
 pagesContainer.Position = UDim2.new(0, TABS_PAD, 0, CONTENT_TOP)
 pagesContainer.BackgroundTransparency = 1
+pagesContainer.ClipsDescendants = true
 pagesContainer.Parent = main
 
 local function createPage(name)
@@ -557,20 +559,23 @@ local function createPage(name)
 	page.Size = UDim2.new(1, 0, 1, 0)
 	page.BackgroundTransparency = 1
 	page.BorderSizePixel = 0
-	page.ScrollBarThickness = 3
+	page.ScrollBarThickness = 2
 	page.ScrollBarImageColor3 = C.BorderHi
-	page.ScrollBarImageTransparency = 0.3
 	page.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	page.CanvasSize = UDim2.new(0, 0, 0, 0)
 	page.Visible = false
 	page.Parent = pagesContainer
+	
 	local layout = Instance.new("UIListLayout")
-	layout.Padding = UDim.new(0, 6)
+	layout.Padding = UDim.new(0, 8) -- Increased gap
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = page
+	
 	local p = Instance.new("UIPadding")
 	p.PaddingRight = UDim.new(0, 6)
+	p.PaddingBottom = UDim.new(0, 4) -- Ensures last item isn't flush with bottom
 	p.Parent = page
+	
 	pages[name] = page
 	return page
 end
@@ -587,26 +592,27 @@ footer.BackgroundColor3 = C.Surface
 footer.BorderSizePixel = 0
 footer.Parent = main
 
--- footer top divider
+-- Clean footer top divider
 local footerSep = Instance.new("Frame")
 footerSep.Size = UDim2.new(1, 0, 0, 1)
+footerSep.Position = UDim2.new(0, 0, 0, 0)
 footerSep.BackgroundColor3 = C.Border
 footerSep.BorderSizePixel = 0
 footerSep.Parent = footer
 
 local footerDot = Instance.new("Frame")
 footerDot.Size = UDim2.new(0, 6, 0, 6)
-footerDot.Position = UDim2.new(0, 12, 0.5, -3)
+footerDot.Position = UDim2.new(0, 14, 0.5, -3)
 footerDot.BackgroundColor3 = C.TextMuted
 footerDot.BorderSizePixel = 0
 footerDot.Parent = footer
 addCorner(footerDot, 3)
 
 local footerStatus = Instance.new("TextLabel")
-footerStatus.Size = UDim2.new(0.5, -22, 1, 0)
-footerStatus.Position = UDim2.new(0, 22, 0, 0)
+footerStatus.Size = UDim2.new(0.5, -24, 1, 0)
+footerStatus.Position = UDim2.new(0, 24, 0, 0)
 footerStatus.BackgroundTransparency = 1
-footerStatus.Font = Enum.Font.GothamSemibold
+footerStatus.Font = Enum.Font.GothamMedium
 footerStatus.Text = "0 active"
 footerStatus.TextSize = 11
 footerStatus.TextColor3 = C.TextDim
@@ -614,7 +620,7 @@ footerStatus.TextXAlignment = Enum.TextXAlignment.Left
 footerStatus.Parent = footer
 
 local footerUser = Instance.new("TextLabel")
-footerUser.Size = UDim2.new(0.5, -12, 1, 0)
+footerUser.Size = UDim2.new(0.5, -14, 1, 0)
 footerUser.Position = UDim2.new(0.5, 0, 0, 0)
 footerUser.BackgroundTransparency = 1
 footerUser.Font = Enum.Font.Gotham
@@ -632,25 +638,31 @@ local function refreshFooter()
 	footerStatus.Text = count .. " active"
 	footerStatus.TextColor3 = count > 0 and C.Green or C.TextDim
 	tw(footerDot, { BackgroundColor3 = count > 0 and C.Green or C.TextMuted })
+	tw(dot, { BackgroundColor3 = count > 0 and C.Green or C.TextMuted }) -- Link title dot too
 end
 
--- ===== Section header (high contrast) =====
+-- ===== Section header (Clean, muted typography) =====
 local function createSection(parentPage, label)
 	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(1, 0, 0, 22)
+	lbl.Size = UDim2.new(1, 0, 0, 24)
 	lbl.BackgroundTransparency = 1
 	lbl.Font = Enum.Font.GothamBold
 	lbl.Text = string.upper(label)
-	lbl.TextSize = 11
-	lbl.TextColor3 = C.Accent
+	lbl.TextSize = 10
+	lbl.TextColor3 = C.TextMuted
 	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.TextYAlignment = Enum.TextYAlignment.Bottom
 	lbl.Parent = parentPage
+	
+	local pad = Instance.new("UIPadding", lbl)
+	pad.PaddingBottom = UDim.new(0, 4)
+	pad.PaddingLeft = UDim.new(0, 2)
 end
 
--- ===== Toggle: ON = green, OFF = gray (clear color coding) =====
+-- ===== Toggle: Perfected alignments & colors =====
 local function createToggle(parentPage, label, key)
 	local row = Instance.new("TextButton")
-	row.Size = UDim2.new(1, 0, 0, 36)
+	row.Size = UDim2.new(1, 0, 0, 40)
 	row.BackgroundColor3 = C.Surface
 	row.AutoButtonColor = false
 	row.Text = ""
@@ -662,7 +674,7 @@ local function createToggle(parentPage, label, key)
 
 	local lbl = Instance.new("TextLabel")
 	lbl.Size = UDim2.new(1, -64, 1, 0)
-	lbl.Position = UDim2.new(0, 12, 0, 0)
+	lbl.Position = UDim2.new(0, 14, 0, 0) -- Fixed left padding
 	lbl.BackgroundTransparency = 1
 	lbl.Font = Enum.Font.GothamMedium
 	lbl.Text = label
@@ -673,8 +685,8 @@ local function createToggle(parentPage, label, key)
 
 	local track = Instance.new("Frame")
 	track.AnchorPoint = Vector2.new(1, 0.5)
-	track.Position = UDim2.new(1, -10, 0.5, 0)
-	track.Size = UDim2.new(0, 38, 0, 20)
+	track.Position = UDim2.new(1, -14, 0.5, 0) -- Fixed right padding (symmetric)
+	track.Size = UDim2.new(0, 36, 0, 20)
 	track.BackgroundColor3 = C.Track
 	track.BorderSizePixel = 0
 	track.Parent = row
@@ -690,12 +702,12 @@ local function createToggle(parentPage, label, key)
 
 	local function setVisual(on)
 		tw(track, { BackgroundColor3 = on and C.Green or C.Track })
-		tw(knob,  { Position = on and UDim2.new(0, 21, 0.5, -7) or UDim2.new(0, 3, 0.5, -7) })
+		tw(knob,  { Position = on and UDim2.new(0, 19, 0.5, -7) or UDim2.new(0, 3, 0.5, -7) })
 		tw(lbl,   { TextColor3 = on and C.Text or C.TextDim })
 	end
 
 	row.MouseEnter:Connect(function()
-		tw(rowStroke, { Transparency = 0.2 })
+		tw(rowStroke, { Transparency = 0 })
 	end)
 	row.MouseLeave:Connect(function()
 		tw(rowStroke, { Transparency = 0.5 })
@@ -709,10 +721,10 @@ local function createToggle(parentPage, label, key)
 	setVisual(State[key])
 end
 
--- ===== Input (centered, clean) =====
+-- ===== Input (Proper text field appearance) =====
 local function createInput(parentPage, label, defaultValue, onChanged)
 	local row = Instance.new("Frame")
-	row.Size = UDim2.new(1, 0, 0, 36)
+	row.Size = UDim2.new(1, 0, 0, 40)
 	row.BackgroundColor3 = C.Surface
 	row.BorderSizePixel = 0
 	row.Parent = parentPage
@@ -722,7 +734,7 @@ local function createInput(parentPage, label, defaultValue, onChanged)
 
 	local lbl = Instance.new("TextLabel")
 	lbl.Size = UDim2.new(0.55, -16, 1, 0)
-	lbl.Position = UDim2.new(0, 12, 0, 0)
+	lbl.Position = UDim2.new(0, 14, 0, 0)
 	lbl.BackgroundTransparency = 1
 	lbl.TextColor3 = C.TextDim
 	lbl.Font = Enum.Font.GothamMedium
@@ -733,17 +745,17 @@ local function createInput(parentPage, label, defaultValue, onChanged)
 
 	local boxFrame = Instance.new("Frame")
 	boxFrame.AnchorPoint = Vector2.new(1, 0.5)
-	boxFrame.Position = UDim2.new(1, -8, 0.5, 0)
-	boxFrame.Size = UDim2.new(0.42, -8, 0, 24)
-	boxFrame.BackgroundColor3 = C.BG
+	boxFrame.Position = UDim2.new(1, -14, 0.5, 0)
+	boxFrame.Size = UDim2.new(0.35, 0, 0, 26) -- True input field size
+	boxFrame.BackgroundColor3 = C.BG -- Dark background marks it as input
 	boxFrame.BorderSizePixel = 0
 	boxFrame.Parent = row
 	addCorner(boxFrame, 6)
 	local bStroke = addStroke(boxFrame, C.Border, 1)
 
 	local box = Instance.new("TextBox")
-	box.Size = UDim2.new(1, -10, 1, 0)
-	box.Position = UDim2.new(0, 5, 0, 0)
+	box.Size = UDim2.new(1, 0, 1, 0)
+	box.Position = UDim2.new(0, 0, 0, 0)
 	box.BackgroundTransparency = 1
 	box.TextColor3 = C.Text
 	box.PlaceholderColor3 = C.TextMuted
@@ -751,15 +763,19 @@ local function createInput(parentPage, label, defaultValue, onChanged)
 	box.Text = tostring(defaultValue)
 	box.Font = Enum.Font.Gotham
 	box.TextSize = 12
-	box.TextXAlignment = Enum.TextXAlignment.Center
+	box.TextXAlignment = Enum.TextXAlignment.Left -- Left aligned!
 	box.TextYAlignment = Enum.TextYAlignment.Center
 	box.ClearTextOnFocus = false
 	box.ClipsDescendants = true
 	box.Parent = boxFrame
+	
+	local boxPad = Instance.new("UIPadding", box)
+	boxPad.PaddingLeft = UDim.new(0, 8)
+	boxPad.PaddingRight = UDim.new(0, 8)
 
 	box.Focused:Connect(function()
 		tw(bStroke,   { Color = C.Accent, Transparency = 0 })
-		tw(rowStroke, { Transparency = 0.2 })
+		tw(rowStroke, { Transparency = 0 })
 	end)
 	box.FocusLost:Connect(function()
 		onChanged(box.Text)
@@ -771,20 +787,20 @@ end
 -- ===== Action button =====
 local function createActionButton(parentPage, label, onClick)
 	local b = Instance.new("TextButton")
-	b.Size = UDim2.new(1, 0, 0, 32)
+	b.Size = UDim2.new(1, 0, 0, 36)
 	b.BackgroundColor3 = C.Accent
 	b.AutoButtonColor = false
 	b.Font = Enum.Font.GothamBold
 	b.Text = label
 	b.TextSize = 12
-	b.TextColor3 = C.Text
+	b.TextColor3 = Color3.fromRGB(255, 255, 255)
 	b.Parent = parentPage
 	addCorner(b, 8)
 
-	b.MouseEnter:Connect(function() tw(b, { BackgroundColor3 = Color3.fromRGB(245, 70, 100) }) end)
+	b.MouseEnter:Connect(function() tw(b, { BackgroundColor3 = C.AccentDim }) end)
 	b.MouseLeave:Connect(function() tw(b, { BackgroundColor3 = C.Accent }) end)
 	b.MouseButton1Click:Connect(function()
-		tw(b, { BackgroundColor3 = C.AccentDim })
+		tw(b, { BackgroundColor3 = C.SurfaceHi })
 		task.delay(0.12, function()
 			if b.Parent then tw(b, { BackgroundColor3 = C.Accent }) end
 		end)
@@ -860,7 +876,7 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 -- ===== Minimize / hide =====
-local expandedSize  = UDim2.new(0, 360, 0, 460)
+local expandedSize  = UDim2.new(0, 360, 0, 480)
 local minimizedSize = UDim2.new(0, 360, 0, TITLE_H)
 local minimized = false
 local hidden = false
@@ -869,7 +885,7 @@ local hidden = false
 local pill = Instance.new("TextButton")
 pill.Size = UDim2.new(0, 40, 0, 40)
 pill.Position = UDim2.new(0, 14, 1, -56)
-pill.BackgroundColor3 = C.Accent
+pill.BackgroundColor3 = C.SurfaceHi
 pill.AutoButtonColor = false
 pill.Font = Enum.Font.GothamBold
 pill.Text = "AS"
@@ -878,9 +894,10 @@ pill.TextColor3 = C.Text
 pill.Visible = false
 pill.Parent = screenGui
 addCorner(pill, 20)
+addStroke(pill, C.Border, 1)
 
-pill.MouseEnter:Connect(function() tw(pill, { BackgroundColor3 = Color3.fromRGB(245, 70, 100) }) end)
-pill.MouseLeave:Connect(function() tw(pill, { BackgroundColor3 = C.Accent }) end)
+pill.MouseEnter:Connect(function() tw(pill, { BackgroundColor3 = C.BorderHi }) end)
+pill.MouseLeave:Connect(function() tw(pill, { BackgroundColor3 = C.SurfaceHi }) end)
 
 local function setHidden(state)
 	hidden = state
