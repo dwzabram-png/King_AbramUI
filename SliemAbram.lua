@@ -7,6 +7,7 @@ local VirtualUser = game:GetService("VirtualUser")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
+local TweenService = game:GetService("TweenService")
 
 local localPlayer = Players.LocalPlayer
 local client, clientHRP
@@ -372,15 +373,12 @@ local parentGui = gethui and gethui() or CoreGui
 screenGui.Parent = parentGui
 
 local main = Instance.new("Frame")
-main.Size = UDim2.new(0, 360, 0, 480)
-main.Position = UDim2.new(0.5, -180, 0.5, -240)
+main.Size = UDim2.new(0, 380, 0, 500)
+main.Position = UDim2.new(0.5, -190, 0.5, -250)
 main.BackgroundColor3 = Color3.fromRGB(20, 5, 8)
 main.BorderSizePixel = 0
+main.ClipsDescendants = true
 main.Parent = screenGui
-
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 10)
-corner.Parent = main
 
 local stroke = Instance.new("UIStroke")
 stroke.Color = Color3.fromRGB(150, 25, 40)
@@ -393,12 +391,8 @@ titleBar.BackgroundColor3 = Color3.fromRGB(45, 10, 16)
 titleBar.BorderSizePixel = 0
 titleBar.Parent = main
 
-local titleCorner = Instance.new("UICorner")
-titleCorner.CornerRadius = UDim.new(0, 10)
-titleCorner.Parent = titleBar
-
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -12, 1, 0)
+title.Size = UDim2.new(1, -120, 1, 0)
 title.Position = UDim2.new(0, 12, 0, 0)
 title.BackgroundTransparency = 1
 title.Font = Enum.Font.GothamBold
@@ -408,36 +402,59 @@ title.TextColor3 = Color3.fromRGB(255, 220, 220)
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = titleBar
 
-local listHolder = Instance.new("ScrollingFrame")
-listHolder.Size = UDim2.new(1, -12, 1, -50)
-listHolder.Position = UDim2.new(0, 6, 0, 44)
-listHolder.BackgroundTransparency = 1
-listHolder.BorderSizePixel = 0
-listHolder.CanvasSize = UDim2.new(0, 0, 0, 900)
-listHolder.ScrollBarThickness = 4
-listHolder.Parent = main
+local hint = Instance.new("TextLabel")
+hint.Size = UDim2.new(0, 108, 1, 0)
+hint.Position = UDim2.new(1, -108, 0, 0)
+hint.BackgroundTransparency = 1
+hint.Font = Enum.Font.Gotham
+hint.Text = "Alt = Toggle UI"
+hint.TextSize = 12
+hint.TextColor3 = Color3.fromRGB(255, 170, 170)
+hint.TextXAlignment = Enum.TextXAlignment.Center
+hint.Parent = titleBar
 
-local layout = Instance.new("UIListLayout")
-layout.Padding = UDim.new(0, 6)
-layout.Parent = listHolder
+local tabsBar = Instance.new("Frame")
+tabsBar.Size = UDim2.new(1, -12, 0, 32)
+tabsBar.Position = UDim2.new(0, 6, 0, 44)
+tabsBar.BackgroundTransparency = 1
+tabsBar.Parent = main
 
-local function createButton(text, callback)
-	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(1, -6, 0, 28)
-	btn.BackgroundColor3 = Color3.fromRGB(75, 16, 24)
-	btn.TextColor3 = Color3.fromRGB(255, 232, 232)
-	btn.Font = Enum.Font.GothamSemibold
-	btn.TextSize = 13
-	btn.Text = text
-	btn.AutoButtonColor = true
-	btn.Parent = listHolder
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, 6)
-	c.Parent = btn
-	btn.MouseButton1Click:Connect(callback)
+local tabsLayout = Instance.new("UIListLayout")
+tabsLayout.FillDirection = Enum.FillDirection.Horizontal
+tabsLayout.Padding = UDim.new(0, 6)
+tabsLayout.Parent = tabsBar
+
+local pagesContainer = Instance.new("Frame")
+pagesContainer.Size = UDim2.new(1, -12, 1, -84)
+pagesContainer.Position = UDim2.new(0, 6, 0, 78)
+pagesContainer.BackgroundTransparency = 1
+pagesContainer.Parent = main
+
+local pages = {}
+local tabButtons = {}
+
+local function createPage(name)
+	local page = Instance.new("ScrollingFrame")
+	page.Name = name
+	page.Size = UDim2.new(1, 0, 1, 0)
+	page.BackgroundTransparency = 1
+	page.BorderSizePixel = 0
+	page.ScrollBarThickness = 4
+	page.CanvasSize = UDim2.new(0, 0, 0, 1100)
+	page.Visible = false
+	page.Parent = pagesContainer
+	local layout = Instance.new("UIListLayout")
+	layout.Padding = UDim.new(0, 6)
+	layout.Parent = page
+	pages[name] = page
+	return page
 end
 
-local function createToggle(label, key)
+local pageMain = createPage("Main")
+local pageUpgrades = createPage("Upgrades")
+local pageWebhook = createPage("Webhook")
+
+local function createToggle(parentPage, label, key)
 	local btn = Instance.new("TextButton")
 	btn.Size = UDim2.new(1, -6, 0, 28)
 	btn.BackgroundColor3 = Color3.fromRGB(50, 12, 18)
@@ -446,7 +463,7 @@ local function createToggle(label, key)
 	btn.TextSize = 13
 	btn.Text = label .. ": OFF"
 	btn.AutoButtonColor = true
-	btn.Parent = listHolder
+	btn.Parent = parentPage
 	local c = Instance.new("UICorner")
 	c.CornerRadius = UDim.new(0, 6)
 	c.Parent = btn
@@ -457,11 +474,11 @@ local function createToggle(label, key)
 	end)
 end
 
-local function createInput(label, defaultValue, onChanged)
+local function createInput(parentPage, label, defaultValue, onChanged)
 	local container = Instance.new("Frame")
 	container.Size = UDim2.new(1, -6, 0, 28)
 	container.BackgroundTransparency = 1
-	container.Parent = listHolder
+	container.Parent = parentPage
 	local textLabel = Instance.new("TextLabel")
 	textLabel.Size = UDim2.new(0.52, 0, 1, 0)
 	textLabel.BackgroundTransparency = 1
@@ -490,33 +507,63 @@ local function createInput(label, defaultValue, onChanged)
 	end)
 end
 
-createButton("Copy Discord Link", function()
-	pcall(setclipboard, "https://discord.gg/hJCn7UnkVZ")
-	Notify("Discord", "Link copied to clipboard.")
-end)
-createToggle("Auto Roll", "AutoRoll")
-createToggle("Auto Index", "AutoIndex")
-createToggle("Auto Farm", "AutoFarm")
-createToggle("Auto Potions", "AutoPotions")
-createToggle("Auto Best Zone", "AutoTeleportBestZone")
-createToggle("Auto Upgrade", "AutoUpgrade")
-createToggle("Auto Buy Zone", "AutoBuyZone")
-createToggle("Auto Rebirth", "AutoRebirth")
-createToggle("Auto Equip Best", "AutoEquipBest")
-createToggle("Webhook", "Webhook")
+local function setActiveTab(name)
+	for pageName, page in pairs(pages) do
+		page.Visible = (pageName == name)
+	end
+	for tabName, btn in pairs(tabButtons) do
+		btn.BackgroundColor3 = tabName == name and Color3.fromRGB(120, 24, 36) or Color3.fromRGB(60, 12, 19)
+	end
+end
 
-createInput("Best Zone Interval", Config.AutoBestZoneInterval, function(v)
+local function createTabButton(name)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0, 110, 1, 0)
+	btn.BackgroundColor3 = Color3.fromRGB(60, 12, 19)
+	btn.TextColor3 = Color3.fromRGB(255, 220, 220)
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 12
+	btn.Text = name
+	btn.AutoButtonColor = true
+	btn.Parent = tabsBar
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 6)
+	c.Parent = btn
+	btn.MouseButton1Click:Connect(function()
+		setActiveTab(name)
+	end)
+	tabButtons[name] = btn
+end
+
+createTabButton("Main")
+createTabButton("Upgrades")
+createTabButton("Webhook")
+
+createToggle(pageMain, "Auto Roll", "AutoRoll")
+createToggle(pageMain, "Auto Index", "AutoIndex")
+createToggle(pageMain, "Auto Farm", "AutoFarm")
+createToggle(pageMain, "Auto Potions", "AutoPotions")
+createToggle(pageMain, "Auto Best Zone", "AutoTeleportBestZone")
+createInput(pageMain, "Best Zone Interval", Config.AutoBestZoneInterval, function(v)
 	Config.AutoBestZoneInterval = math.max(1, tonumber(v) or 30)
 end)
-createInput("Upgrade Interval", Config.AutoUpgradeInterval, function(v)
+
+createToggle(pageUpgrades, "Auto Upgrade", "AutoUpgrade")
+createToggle(pageUpgrades, "Auto Buy Zone", "AutoBuyZone")
+createToggle(pageUpgrades, "Auto Rebirth", "AutoRebirth")
+createToggle(pageUpgrades, "Auto Equip Best", "AutoEquipBest")
+createInput(pageUpgrades, "Upgrade Interval", Config.AutoUpgradeInterval, function(v)
 	Config.AutoUpgradeInterval = math.max(1, tonumber(v) or 30)
 end)
-createInput("Webhook URL", Config.WebhookUrl, function(v)
+
+createToggle(pageWebhook, "Webhook", "Webhook")
+createInput(pageWebhook, "Webhook URL", Config.WebhookUrl, function(v)
 	Config.WebhookUrl = tostring(v or "")
 end)
-createInput("Webhook Interval", Config.WebhookInterval, function(v)
+createInput(pageWebhook, "Webhook Interval", Config.WebhookInterval, function(v)
 	Config.WebhookInterval = math.max(1, tonumber(v) or 30)
 end)
+setActiveTab("Main")
 
 local dragging = false
 local dragStart, startPos
@@ -537,6 +584,20 @@ UserInputService.InputChanged:Connect(function(input)
 	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
 		local delta = input.Position - dragStart
 		main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+	end
+end)
+
+local expandedSize = UDim2.new(0, 380, 0, 500)
+local minimizedSize = UDim2.new(0, 380, 0, 38)
+local minimized = false
+local uiTweenInfo = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Enum.KeyCode.LeftAlt then
+		minimized = not minimized
+		local goal = minimized and minimizedSize or expandedSize
+		TweenService:Create(main, uiTweenInfo, { Size = goal }):Play()
 	end
 end)
 
