@@ -26,7 +26,7 @@ localPlayer.Idled:Connect(function()
 	VirtualUser:ClickButton2(Vector2.new())
 end)
 
-local loopThreads = {}
+local activeFeatures = {}
 local State = {
 	AutoRoll = false,
 	AutoIndex = false,
@@ -74,24 +74,7 @@ local function Notify(title, content)
 	end)
 end
 
-local function stopLoop(name)
-	local thread = loopThreads[name]
-	if thread then
-		pcall(task.cancel, thread)
-		loopThreads[name] = nil
-	end
-end
-
-local function startLoop(name, loopFn)
-	stopLoop(name)
-	loopThreads[name] = task.spawn(function()
-		local ok, err = pcall(loopFn)
-		if not ok then
-			Notify("Loop Error", name .. ": " .. tostring(err))
-		end
-		loopThreads[name] = nil
-	end)
-end
+-- stopLoop and startLoop removed (replaced by stopFeature/startFeature)
 
 -- Safe teleport
 local function TP(x, y, z)
@@ -224,138 +207,129 @@ local function TeleportBestZone()
 	Teleport(best + 1)
 end
 
--- ==================== LOGIC ====================
-local autoFarmConnection
+-- ==================== FEATURE CONFIGURATION ====================
+local FEATURES = {
+	AutoRoll = {
+		kind = "task_loop",
+		getInterval = function() return getRollCooldown() end,
+		action = function() Roll() end
+	},
+	AutoIndex = {
+		kind = "task_loop",
+		getInterval = function() return 30 end,
+		action = function() ClaimIndex() end
+	},
+	AutoFarm = {
+		kind = "rbx_connection",
+		getSignal = function() return RunService.Heartbeat end,
+		callback = function()
+			if not State.AutoFarm or not clientHRP then return end
+			local lootFolder = workspace:FindFirstChild("Loot")
+			if not lootFolder then return end
+			for _, drop in ipairs(lootFolder:GetChildren()) do
+				if not State.AutoFarm then break end
+				for _, child in ipairs(drop:GetChildren()) do
+					if child:IsA("BasePart") and child.Name ~= "LootHighlight" then
+						child.CFrame = clientHRP.CFrame
+					end
+				end
+			end
+		end
+	},
+	AutoPotions = {
+		kind = "task_loop",
+		getInterval = function() return 3 end,
+		action = function() ConsumePotions() end
+	},
+	AutoTeleportBestZone = {
+		kind = "task_loop",
+		getInterval = function() return Config.AutoBestZoneInterval end,
+		action = function() TeleportBestZone() end
+	},
+	AutoUpgrade = {
+		kind = "task_loop",
+		getInterval = function() return Config.AutoUpgradeInterval end,
+		action = function() Upgrade() end
+	},
+	AutoBuyZone = {
+		kind = "task_loop",
+		getInterval = function() return 5 end,
+		action = function() callRemote("ZonesService", "requestPurchaseZone") end
+	},
+	AutoRebirth = {
+		kind = "task_loop",
+		getInterval = function() return 5 end,
+		action = function() callRemote("RebirthService", "requestRebirth") end
+	},
+	AutoEquipBest = {
+		kind = "task_loop",
+		getInterval = function() return 10 end,
+		action = function() callRemote("InventoryService", "requestEquipBest") end
+	},
+	Webhook = {
+		kind = "task_loop",
+		getInterval = function() return Config.WebhookInterval end,
+		action = function()
+			if isValidWebhook(Config.WebhookUrl) and clientHRP then
+				local titleGui = safeFind(client, "Head", "TitleGui") or safeFind(clientHRP, "TitleGui")
+				local numRolls = titleGui and titleGui:FindFirstChild("NumRolls") and titleGui.NumRolls.Text or "N/A"
+				SendDiscordWebhook(Config.WebhookUrl, {
+					title = localPlayer.Name,
+					description = numRolls
+				})
+			end
+		end
+	}
+}
 
+-- ==================== FEATURE MANAGEMENT ====================
+local function stopFeature(name)
+	local handle = activeFeatures[name]
+	if not handle then return end
+	if typeof(handle) == "thread" then
+		pcall(task.cancel, handle)
+	elseif typeof(handle) == "RBXScriptConnection" then
+		pcall(handle.Disconnect, handle)
+	end
+	activeFeatures[name] = nil
+end
+
+local function startFeature(name)
+	stopFeature(name)
+	local cfg = FEATURES[name]
+	if not cfg then return end
+
+	if cfg.kind == "task_loop" then
+		local thread = task.spawn(function()
+			while State[name] do
+				local ok, err = pcall(cfg.action)
+				if not ok then
+					Notify("Loop Error", name .. ": " .. tostring(err))
+					break
+				end
+				if not State[name] then break end
+				task.wait(cfg.getInterval())
+			end
+			activeFeatures[name] = nil
+		end)
+		activeFeatures[name] = thread
+	elseif cfg.kind == "rbx_connection" then
+		local signal = cfg.getSignal()
+		if not signal then return end
+		activeFeatures[name] = signal:Connect(cfg.callback)
+	end
+end
+
+-- ==================== LOGIC ====================
 local function toggleFeature(name, value)
 	State[name] = value
 	Notify(name, value and "Enabled" or "Disabled")
-
-	if name == "AutoRoll" then
-		if value then
-			startLoop("AutoRoll", function()
-				while State.AutoRoll do
-					local cd = getRollCooldown()
-					task.wait(cd)
-					if State.AutoRoll then Roll() end
-				end
-			end)
-		else
-			stopLoop("AutoRoll")
-		end
-	elseif name == "AutoIndex" then
-		if value then
-			startLoop("AutoIndex", function()
-				while State.AutoIndex do
-					task.wait(30)
-					if State.AutoIndex then ClaimIndex() end
-				end
-			end)
-		else
-			stopLoop("AutoIndex")
-		end
-	elseif name == "AutoFarm" then
-		if autoFarmConnection then autoFarmConnection:Disconnect() end
-		if value then
-			autoFarmConnection = RunService.Heartbeat:Connect(function()
-				if not State.AutoFarm or not clientHRP then return end
-				local lootFolder = workspace:FindFirstChild("Loot")
-				if not lootFolder then return end
-				for _, drop in ipairs(lootFolder:GetChildren()) do
-					if not State.AutoFarm then break end
-					for _, child in ipairs(drop:GetChildren()) do
-						if child:IsA("BasePart") and child.Name ~= "LootHighlight" then
-							child.CFrame = clientHRP.CFrame
-						end
-					end
-				end
-			end)
-		end
-	elseif name == "AutoPotions" then
-		if value then
-			startLoop("AutoPotions", function()
-				while State.AutoPotions do
-					ConsumePotions()
-					task.wait(3)
-				end
-			end)
-		else
-			stopLoop("AutoPotions")
-		end
-	elseif name == "AutoTeleportBestZone" then
-		if value then
-			startLoop("AutoTeleportBestZone", function()
-				while State.AutoTeleportBestZone do
-					TeleportBestZone()
-					task.wait(Config.AutoBestZoneInterval)
-				end
-			end)
-		else
-			stopLoop("AutoTeleportBestZone")
-		end
-	elseif name == "AutoUpgrade" then
-		if value then
-			startLoop("AutoUpgrade", function()
-				while State.AutoUpgrade do
-					Upgrade()
-					task.wait(Config.AutoUpgradeInterval)
-				end
-			end)
-		else
-			stopLoop("AutoUpgrade")
-		end
-	elseif name == "AutoBuyZone" then
-		if value then
-			startLoop("AutoBuyZone", function()
-				while State.AutoBuyZone do
-					callRemote("ZonesService", "requestPurchaseZone")
-					task.wait(5)
-				end
-			end)
-		else
-			stopLoop("AutoBuyZone")
-		end
-	elseif name == "AutoRebirth" then
-		if value then
-			startLoop("AutoRebirth", function()
-				while State.AutoRebirth do
-					callRemote("RebirthService", "requestRebirth")
-					task.wait(5)
-				end
-			end)
-		else
-			stopLoop("AutoRebirth")
-		end
-	elseif name == "AutoEquipBest" then
-		if value then
-			startLoop("AutoEquipBest", function()
-				while State.AutoEquipBest do
-					callRemote("InventoryService", "requestEquipBest")
-					task.wait(10)
-				end
-			end)
-		else
-			stopLoop("AutoEquipBest")
-		end
-	elseif name == "Webhook" then
-		if value then
-			startLoop("Webhook", function()
-				while State.Webhook do
-					if isValidWebhook(Config.WebhookUrl) and clientHRP then
-						local titleGui = safeFind(client, "Head", "TitleGui") or safeFind(clientHRP, "TitleGui")
-						local numRolls = titleGui and titleGui:FindFirstChild("NumRolls") and titleGui.NumRolls.Text or "N/A"
-						SendDiscordWebhook(Config.WebhookUrl, {
-							title = localPlayer.Name,
-							description = numRolls
-						})
-					end
-					task.wait(Config.WebhookInterval)
-				end
-			end)
-		else
-			stopLoop("Webhook")
-		end
+	if value then
+		startFeature(name)
+	else
+		stopFeature(name)
 	end
+	refreshFooter()
 end
 
 -- ==================== UI v5 — PERFECT DARK MODE & WIDGET & ALL FEATURES ====================
