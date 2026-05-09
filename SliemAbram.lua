@@ -101,7 +101,8 @@ local function Kill()
 	local minDist = math.huge
 	
 	for _, enemy in ipairs(enemies:GetChildren()) do
-		local hrp = enemy:FindFirstChild("HumanoidRootPart") or enemy:FindFirstChild("PrimaryPart")
+		-- prioritizing 'RootPart' as specified by user
+		local hrp = enemy:FindFirstChild("RootPart") or enemy:FindFirstChild("HumanoidRootPart") or enemy:FindFirstChild("PrimaryPart")
 		if hrp then
 			local dist = (clientHRP.Position - hrp.Position).Magnitude
 			if dist < minDist then
@@ -113,7 +114,7 @@ local function Kill()
 	
 	if target then
 		-- Teleport to enemy
-		clientHRP.CFrame = target.CFrame * CFrame.new(0, 0, 2)
+		clientHRP.CFrame = target.CFrame * CFrame.new(0, 0, 3)
 	end
 end
 
@@ -233,14 +234,17 @@ local function TeleportBestZone()
 	if not zonesFolder then return end
 	local best = 0
 	for _, zone in ipairs(zonesFolder:GetChildren()) do
-		local gate = safeFind(zone, "Gate", "ClientGateBlocker_" .. zone.Name)
-		if gate and not gate.CanCollide then
-			local num = tonumber(zone.Name)
-			if num and num > best then best = num end
+		local gate = safeFind(zone, "Gate")
+		if gate then
+			local blocker = gate:FindFirstChild("ClientGateBlocker_" .. zone.Name)
+			if blocker and not blocker.CanCollide then
+				local num = tonumber(zone.Name)
+				if num and num > best then best = num end
+			end
 		end
 	end
 	if best > 0 then
-		Teleport(best)
+		Teleport(best + 1)
 	end
 end
 
