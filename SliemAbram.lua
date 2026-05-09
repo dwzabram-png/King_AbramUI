@@ -11,7 +11,7 @@ local TweenService = game:GetService("TweenService")
 
 local localPlayer = Players.LocalPlayer
 local client, clientHRP
-
+ 
 -- Dynamic character reference (fixes respawn issues)
 local function updateCharacter()
 	client = localPlayer.Character or localPlayer.CharacterAdded:Wait()
