@@ -47,28 +47,17 @@ local Config = {
 	WebhookInterval = 30
 }
 
--- Централизованный поиск ремутов (динамический, не зависит от версий)
-local RemotesFolder = nil
-task.spawn(function()
-	while not RemotesFolder do
-		RemotesFolder = ReplicatedStorage:FindFirstChild("_remotes", true) -- true = искать рекурсивно
-		wait(1)
-	end
-end)
+-- Надежный поиск ремутов (если игра обновится, нужно проверить путь в Explorer)
+local RemotesFolder = ReplicatedStorage:WaitForChild("Packages", 10):WaitForChild("_Index", 10):FindFirstChildOfClass("Folder"):WaitForChild("networker", 10):WaitForChild("_remotes", 10)
 
 local function callRemote(service, method, ...)
-	if not RemotesFolder then return false, "RemotesFolder not found yet" end
+	if not RemotesFolder then error("RemotesFolder not found") end
 	local remote = RemotesFolder:FindFirstChild(service)
-	if not remote then return false, "Remote folder not found" end
+	if not remote then error("Service " .. service .. " not found") end
 	local func = remote:FindFirstChild("RemoteFunction")
-	if not func then return false, "RemoteFunction not found" end
-	local ok, result = pcall(function(...)
-		return func:InvokeServer(...)
-	end, method, ...)
-	if not ok then
-		return false, result
-	end
-	return true, result
+	if not func then error("RemoteFunction not found in " .. service) end
+	
+	return func:InvokeServer(method, ...)
 end
 
 -- Notifications
