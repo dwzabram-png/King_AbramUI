@@ -358,273 +358,172 @@ local function toggleFeature(name, value)
 	end
 end
 
--- ==================== DARK RED UI ====================
+-- ==================== DARK RED UI (v2.1 — clean layout) ====================
 pcall(function()
 	local oldGui = CoreGui:FindFirstChild("AbramSliemGui")
 	if oldGui then oldGui:Destroy() end
 end)
 
--- Theme palette (refined dark crimson)
-local Theme = {
-	BgDeep        = Color3.fromRGB(15, 5, 8),
-	BgBase        = Color3.fromRGB(22, 8, 12),
-	BgRaised      = Color3.fromRGB(34, 12, 18),
-	BgHover       = Color3.fromRGB(50, 16, 24),
-	Accent        = Color3.fromRGB(190, 35, 55),
-	AccentHi      = Color3.fromRGB(225, 55, 80),
-	AccentDim     = Color3.fromRGB(120, 22, 35),
-	Border        = Color3.fromRGB(95, 22, 35),
-	BorderSubtle  = Color3.fromRGB(60, 14, 22),
-	TextPrimary   = Color3.fromRGB(255, 232, 235),
-	TextSecondary = Color3.fromRGB(220, 165, 175),
-	TextMuted     = Color3.fromRGB(160, 110, 120),
-	TrackOff      = Color3.fromRGB(55, 18, 26),
-	Knob          = Color3.fromRGB(255, 230, 232),
-	Success       = Color3.fromRGB(95, 210, 130),
+-- Theme palette
+local C = {
+	BG        = Color3.fromRGB(20, 5, 8),
+	Surface   = Color3.fromRGB(35, 10, 16),
+	SurfaceHi = Color3.fromRGB(55, 16, 24),
+	Accent    = Color3.fromRGB(180, 30, 48),
+	AccentHi  = Color3.fromRGB(220, 50, 70),
+	AccentDim = Color3.fromRGB(100, 20, 32),
+	Border    = Color3.fromRGB(80, 18, 28),
+	Text      = Color3.fromRGB(255, 225, 228),
+	TextDim   = Color3.fromRGB(180, 130, 140),
+	TextMuted = Color3.fromRGB(130, 90, 100),
+	TrackOff  = Color3.fromRGB(50, 14, 22),
+	Knob      = Color3.fromRGB(255, 235, 238),
+	Green     = Color3.fromRGB(85, 200, 120),
 }
 
-local TWEEN_FAST = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-local TWEEN_MED  = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-local TWEEN_POP  = TweenInfo.new(0.32, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local TW_FAST = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local TW_MED  = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local TW_POP  = TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
-local function tween(obj, props, info)
-	TweenService:Create(obj, info or TWEEN_FAST, props):Play()
+local function tw(obj, props, info)
+	TweenService:Create(obj, info or TW_FAST, props):Play()
 end
 
-local function corner(parent, radius)
+local function addCorner(p, r)
 	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, radius or 8)
-	c.Parent = parent
-	return c
+	c.CornerRadius = UDim.new(0, r or 8)
+	c.Parent = p
 end
 
-local function pad(parent, all)
-	local p = Instance.new("UIPadding")
-	p.PaddingLeft   = UDim.new(0, all)
-	p.PaddingRight  = UDim.new(0, all)
-	p.PaddingTop    = UDim.new(0, all)
-	p.PaddingBottom = UDim.new(0, all)
-	p.Parent = parent
-	return p
-end
-
-local function stroke(parent, color, thickness)
+local function addStroke(p, col, t)
 	local s = Instance.new("UIStroke")
-	s.Color = color or Theme.BorderSubtle
-	s.Thickness = thickness or 1
+	s.Color = col or C.Border
+	s.Thickness = t or 1
 	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	s.Parent = parent
+	s.Parent = p
 	return s
 end
 
+-- Screen GUI
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "AbramSliemGui"
 screenGui.ResetOnSpawn = false
-screenGui.IgnoreGuiInset = true
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-
 local parentGui = gethui and gethui() or CoreGui
 screenGui.Parent = parentGui
 
--- Drop shadow (soft outline behind main)
-local shadow = Instance.new("Frame")
-shadow.Size = UDim2.new(0, 392, 0, 532)
-shadow.Position = UDim2.new(0.5, -196, 0.5, -266)
-shadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-shadow.BackgroundTransparency = 0.55
-shadow.BorderSizePixel = 0
-shadow.ZIndex = 0
-shadow.Parent = screenGui
-corner(shadow, 14)
-
+-- Main frame (ClipsDescendants handles the rounded corners for all children)
 local main = Instance.new("Frame")
-main.Size = UDim2.new(0, 380, 0, 520)
-main.Position = UDim2.new(0.5, -190, 0.5, -260)
-main.BackgroundColor3 = Theme.BgBase
+main.Size = UDim2.new(0, 360, 0, 480)
+main.Position = UDim2.new(0.5, -180, 0.5, -240)
+main.BackgroundColor3 = C.BG
 main.BorderSizePixel = 0
 main.ClipsDescendants = true
 main.Parent = screenGui
-corner(main, 12)
+addCorner(main, 10)
+addStroke(main, C.Border, 1.5)
 
-local mainStroke = stroke(main, Theme.Border, 1.2)
-mainStroke.Transparency = 0.15
-
--- Title bar
+-- ===== Title bar =====
 local titleBar = Instance.new("Frame")
-titleBar.Size = UDim2.new(1, 0, 0, 42)
-titleBar.BackgroundColor3 = Theme.BgRaised
+titleBar.Size = UDim2.new(1, 0, 0, 38)
+titleBar.BackgroundColor3 = C.Surface
 titleBar.BorderSizePixel = 0
 titleBar.Parent = main
 
-local titleCorner = Instance.new("UICorner")
-titleCorner.CornerRadius = UDim.new(0, 12)
-titleCorner.Parent = titleBar
-
--- Mask the bottom corners of the title bar so only the top stays rounded
-local titleMask = Instance.new("Frame")
-titleMask.Size = UDim2.new(1, 0, 0, 12)
-titleMask.Position = UDim2.new(0, 0, 1, -12)
-titleMask.BackgroundColor3 = Theme.BgRaised
-titleMask.BorderSizePixel = 0
-titleMask.ZIndex = 1
-titleMask.Parent = titleBar
-
-local titleGradient = Instance.new("UIGradient")
-titleGradient.Color = ColorSequence.new{
-	ColorSequenceKeypoint.new(0, Theme.BgRaised),
-	ColorSequenceKeypoint.new(1, Color3.fromRGB(58, 16, 26)),
-}
-titleGradient.Rotation = 0
-titleGradient.Parent = titleBar
-
--- Accent dot before title
-local dot = Instance.new("Frame")
-dot.Size = UDim2.new(0, 10, 0, 10)
-dot.Position = UDim2.new(0, 14, 0.5, -5)
-dot.BackgroundColor3 = Theme.Accent
-dot.BorderSizePixel = 0
-dot.Parent = titleBar
-corner(dot, 5)
-
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -200, 1, 0)
-title.Position = UDim2.new(0, 32, 0, 0)
+title.Size = UDim2.new(1, -140, 1, 0)
+title.Position = UDim2.new(0, 14, 0, 0)
 title.BackgroundTransparency = 1
 title.Font = Enum.Font.GothamBold
 title.Text = "AbramSliem"
-title.TextSize = 18
-title.TextColor3 = Theme.TextPrimary
+title.TextSize = 16
+title.TextColor3 = C.Text
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = titleBar
 
-local versionTag = Instance.new("TextLabel")
-versionTag.Size = UDim2.new(0, 40, 0, 16)
-versionTag.Position = UDim2.new(0, 122, 0.5, -8)
-versionTag.BackgroundColor3 = Theme.AccentDim
-versionTag.BorderSizePixel = 0
-versionTag.Font = Enum.Font.GothamBold
-versionTag.Text = "v2.0"
-versionTag.TextSize = 10
-versionTag.TextColor3 = Theme.TextPrimary
-versionTag.Parent = titleBar
-corner(versionTag, 4)
+local hint = Instance.new("TextLabel")
+hint.Size = UDim2.new(0, 100, 1, 0)
+hint.Position = UDim2.new(1, -100, 0, 0)
+hint.BackgroundTransparency = 1
+hint.Font = Enum.Font.Gotham
+hint.Text = "Alt = hide/show"
+hint.TextSize = 11
+hint.TextColor3 = C.TextMuted
+hint.TextXAlignment = Enum.TextXAlignment.Right
+hint.Parent = titleBar
 
--- Title bar buttons
-local function createTitleButton(symbol, xOffset, hoverColor)
-	local b = Instance.new("TextButton")
-	b.Size = UDim2.new(0, 28, 0, 24)
-	b.Position = UDim2.new(1, xOffset, 0.5, -12)
-	b.BackgroundColor3 = Theme.BgBase
-	b.BackgroundTransparency = 0.4
-	b.AutoButtonColor = false
-	b.Font = Enum.Font.GothamBold
-	b.TextSize = 14
-	b.TextColor3 = Theme.TextPrimary
-	b.Text = symbol
-	b.Parent = titleBar
-	corner(b, 6)
-	b.MouseEnter:Connect(function()
-		tween(b, { BackgroundColor3 = hoverColor or Theme.BgHover, BackgroundTransparency = 0 })
-	end)
-	b.MouseLeave:Connect(function()
-		tween(b, { BackgroundColor3 = Theme.BgBase, BackgroundTransparency = 0.4 })
-	end)
-	return b
-end
+-- ===== Tab strip =====
+local TAB_W = 110
+local TAB_H = 30
+local TAB_PAD = 4
+local tabNames = { "Main", "Upgrades", "Webhook" }
 
-local closeBtn    = createTitleButton("×", -34,  Color3.fromRGB(180, 30, 40))
-local minBtn      = createTitleButton("–", -68,  Theme.BgHover)
-local hintBtn     = createTitleButton("⌥", -102, Theme.BgHover)
-
--- Hint tooltip on hover of the alt button
-local hintLabel = Instance.new("TextLabel")
-hintLabel.Size = UDim2.new(0, 130, 0, 18)
-hintLabel.Position = UDim2.new(1, -244, 0.5, -9)
-hintLabel.BackgroundTransparency = 1
-hintLabel.Font = Enum.Font.Gotham
-hintLabel.Text = "Alt — show / hide"
-hintLabel.TextSize = 11
-hintLabel.TextColor3 = Theme.TextSecondary
-hintLabel.TextXAlignment = Enum.TextXAlignment.Right
-hintLabel.Parent = titleBar
-
--- Tab strip
 local tabsBar = Instance.new("Frame")
-tabsBar.Size = UDim2.new(1, -20, 0, 36)
-tabsBar.Position = UDim2.new(0, 10, 0, 50)
-tabsBar.BackgroundColor3 = Theme.BgDeep
+tabsBar.Size = UDim2.new(1, -16, 0, TAB_H + 8)
+tabsBar.Position = UDim2.new(0, 8, 0, 42)
+tabsBar.BackgroundColor3 = C.Surface
 tabsBar.BorderSizePixel = 0
 tabsBar.Parent = main
-corner(tabsBar, 8)
+addCorner(tabsBar, 8)
 
-local tabsLayout = Instance.new("UIListLayout")
-tabsLayout.FillDirection = Enum.FillDirection.Horizontal
-tabsLayout.Padding = UDim.new(0, 4)
-tabsLayout.SortOrder = Enum.SortOrder.LayoutOrder
-tabsLayout.Parent = tabsBar
-pad(tabsBar, 4)
+local tabButtons = {}
+local pages = {}
+local _currentTab = nil
 
--- Animated active-tab indicator
+-- Tab indicator — positioned by index math, not AbsolutePosition
 local indicator = Instance.new("Frame")
-indicator.Size = UDim2.new(0, 110, 0, 28)
-indicator.Position = UDim2.new(0, 4, 0, 4)
-indicator.BackgroundColor3 = Theme.AccentDim
+indicator.Size = UDim2.new(0, TAB_W, 0, TAB_H)
+indicator.Position = UDim2.new(0, TAB_PAD, 0, TAB_PAD)
+indicator.BackgroundColor3 = C.AccentDim
 indicator.BorderSizePixel = 0
 indicator.ZIndex = 1
 indicator.Parent = tabsBar
-corner(indicator, 6)
-local indicatorStroke = stroke(indicator, Theme.Accent, 1)
-indicatorStroke.Transparency = 0.3
+addCorner(indicator, 6)
 
--- Pages container
+local function getTabX(index)
+	return TAB_PAD + (index - 1) * (TAB_W + TAB_PAD)
+end
+
+local function setActiveTab(name)
+	_currentTab = name
+	for pageName, page in pairs(pages) do
+		page.Visible = (pageName == name)
+	end
+	for i, tabName in ipairs(tabNames) do
+		local btn = tabButtons[tabName]
+		if btn then
+			btn.TextColor3 = (tabName == name) and C.Text or C.TextDim
+		end
+		if tabName == name then
+			tw(indicator, { Position = UDim2.new(0, getTabX(i), 0, TAB_PAD) }, TW_MED)
+		end
+	end
+end
+
+for i, tabName in ipairs(tabNames) do
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0, TAB_W, 0, TAB_H)
+	btn.Position = UDim2.new(0, getTabX(i), 0, TAB_PAD)
+	btn.BackgroundTransparency = 1
+	btn.AutoButtonColor = false
+	btn.Font = Enum.Font.GothamBold
+	btn.Text = tabName
+	btn.TextSize = 12
+	btn.TextColor3 = C.TextDim
+	btn.ZIndex = 2
+	btn.Parent = tabsBar
+	btn.MouseButton1Click:Connect(function() setActiveTab(tabName) end)
+	tabButtons[tabName] = btn
+end
+
+-- ===== Pages container =====
+local CONTENT_TOP = 42 + TAB_H + 8 + 6  -- title + tabs + gap
+local FOOTER_H = 26
 local pagesContainer = Instance.new("Frame")
-pagesContainer.Size = UDim2.new(1, -20, 1, -132)
-pagesContainer.Position = UDim2.new(0, 10, 0, 94)
+pagesContainer.Size = UDim2.new(1, -16, 1, -(CONTENT_TOP + FOOTER_H + 4))
+pagesContainer.Position = UDim2.new(0, 8, 0, CONTENT_TOP)
 pagesContainer.BackgroundTransparency = 1
 pagesContainer.Parent = main
-
--- Footer / status bar
-local footer = Instance.new("Frame")
-footer.Size = UDim2.new(1, 0, 0, 28)
-footer.Position = UDim2.new(0, 0, 1, -28)
-footer.BackgroundColor3 = Theme.BgDeep
-footer.BorderSizePixel = 0
-footer.Parent = main
-
-local footerStatus = Instance.new("TextLabel")
-footerStatus.Size = UDim2.new(0.5, -12, 1, 0)
-footerStatus.Position = UDim2.new(0, 12, 0, 0)
-footerStatus.BackgroundTransparency = 1
-footerStatus.Font = Enum.Font.GothamSemibold
-footerStatus.Text = "0 active"
-footerStatus.TextSize = 11
-footerStatus.TextColor3 = Theme.TextSecondary
-footerStatus.TextXAlignment = Enum.TextXAlignment.Left
-footerStatus.Parent = footer
-
-local footerUser = Instance.new("TextLabel")
-footerUser.Size = UDim2.new(0.5, -12, 1, 0)
-footerUser.Position = UDim2.new(0.5, 0, 0, 0)
-footerUser.BackgroundTransparency = 1
-footerUser.Font = Enum.Font.Gotham
-footerUser.Text = localPlayer.DisplayName .. "  •  @" .. localPlayer.Name
-footerUser.TextSize = 11
-footerUser.TextColor3 = Theme.TextMuted
-footerUser.TextXAlignment = Enum.TextXAlignment.Right
-footerUser.Parent = footer
-
-local pages = {}
-local tabButtons = {}
-local tabOrder = {}
-
-local function refreshFooter()
-	local count = 0
-	for _, v in pairs(State) do
-		if v then count = count + 1 end
-	end
-	footerStatus.Text = string.format("%d active", count)
-	footerStatus.TextColor3 = count > 0 and Theme.Success or Theme.TextSecondary
-end
 
 local function createPage(name)
 	local page = Instance.new("ScrollingFrame")
@@ -633,21 +532,16 @@ local function createPage(name)
 	page.BackgroundTransparency = 1
 	page.BorderSizePixel = 0
 	page.ScrollBarThickness = 3
-	page.ScrollBarImageColor3 = Theme.Accent
-	page.ScrollBarImageTransparency = 0.4
+	page.ScrollBarImageColor3 = C.Accent
+	page.ScrollBarImageTransparency = 0.5
 	page.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	page.CanvasSize = UDim2.new(0, 0, 0, 0)
 	page.Visible = false
 	page.Parent = pagesContainer
 	local layout = Instance.new("UIListLayout")
-	layout.Padding = UDim.new(0, 8)
+	layout.Padding = UDim.new(0, 6)
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = page
-	local p = Instance.new("UIPadding")
-	p.PaddingTop    = UDim.new(0, 4)
-	p.PaddingBottom = UDim.new(0, 6)
-	p.PaddingRight  = UDim.new(0, 4)
-	p.Parent = page
 	pages[name] = page
 	return page
 end
@@ -656,260 +550,222 @@ local pageMain     = createPage("Main")
 local pageUpgrades = createPage("Upgrades")
 local pageWebhook  = createPage("Webhook")
 
--- Section header (title + divider)
+-- ===== Footer =====
+local footer = Instance.new("Frame")
+footer.Size = UDim2.new(1, 0, 0, FOOTER_H)
+footer.Position = UDim2.new(0, 0, 1, -FOOTER_H)
+footer.BackgroundColor3 = C.Surface
+footer.BorderSizePixel = 0
+footer.Parent = main
+
+local footerStatus = Instance.new("TextLabel")
+footerStatus.Size = UDim2.new(0.5, -10, 1, 0)
+footerStatus.Position = UDim2.new(0, 10, 0, 0)
+footerStatus.BackgroundTransparency = 1
+footerStatus.Font = Enum.Font.GothamSemibold
+footerStatus.Text = "0 active"
+footerStatus.TextSize = 11
+footerStatus.TextColor3 = C.TextDim
+footerStatus.TextXAlignment = Enum.TextXAlignment.Left
+footerStatus.Parent = footer
+
+local footerUser = Instance.new("TextLabel")
+footerUser.Size = UDim2.new(0.5, -10, 1, 0)
+footerUser.Position = UDim2.new(0.5, 0, 0, 0)
+footerUser.BackgroundTransparency = 1
+footerUser.Font = Enum.Font.Gotham
+footerUser.Text = localPlayer.Name
+footerUser.TextSize = 11
+footerUser.TextColor3 = C.TextMuted
+footerUser.TextXAlignment = Enum.TextXAlignment.Right
+footerUser.Parent = footer
+
+local function refreshFooter()
+	local count = 0
+	for _, v in pairs(State) do
+		if v then count = count + 1 end
+	end
+	footerStatus.Text = count .. " active"
+	footerStatus.TextColor3 = count > 0 and C.Green or C.TextDim
+end
+
+-- ===== Component: Section =====
 local function createSection(parentPage, label)
-	local container = Instance.new("Frame")
-	container.Size = UDim2.new(1, 0, 0, 22)
-	container.BackgroundTransparency = 1
-	container.Parent = parentPage
 	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(0, 200, 1, 0)
+	lbl.Size = UDim2.new(1, 0, 0, 20)
 	lbl.BackgroundTransparency = 1
 	lbl.Font = Enum.Font.GothamBold
 	lbl.Text = string.upper(label)
-	lbl.TextSize = 11
-	lbl.TextColor3 = Theme.Accent
+	lbl.TextSize = 10
+	lbl.TextColor3 = C.Accent
 	lbl.TextXAlignment = Enum.TextXAlignment.Left
-	lbl.Parent = container
-	local div = Instance.new("Frame")
-	div.AnchorPoint = Vector2.new(1, 0.5)
-	div.Position = UDim2.new(1, 0, 0.5, 0)
-	div.Size = UDim2.new(1, -210, 0, 1)
-	div.BackgroundColor3 = Theme.BorderSubtle
-	div.BorderSizePixel = 0
-	div.Parent = container
+	lbl.Parent = parentPage
 end
 
--- Modern toggle: label + animated switch
-local toggleRefs = {}
-
+-- ===== Component: Toggle =====
 local function createToggle(parentPage, label, key)
-	local row = Instance.new("Frame")
-	row.Size = UDim2.new(1, 0, 0, 36)
-	row.BackgroundColor3 = Theme.BgRaised
+	local row = Instance.new("TextButton")
+	row.Size = UDim2.new(1, 0, 0, 34)
+	row.BackgroundColor3 = C.Surface
+	row.AutoButtonColor = false
+	row.Text = ""
 	row.BorderSizePixel = 0
 	row.Parent = parentPage
-	corner(row, 8)
-	stroke(row, Theme.BorderSubtle, 1).Transparency = 0.2
-
-	local hit = Instance.new("TextButton")
-	hit.Size = UDim2.new(1, 0, 1, 0)
-	hit.BackgroundTransparency = 1
-	hit.Text = ""
-	hit.AutoButtonColor = false
-	hit.Parent = row
+	addCorner(row, 6)
 
 	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(1, -70, 1, 0)
-	lbl.Position = UDim2.new(0, 12, 0, 0)
+	lbl.Size = UDim2.new(1, -62, 1, 0)
+	lbl.Position = UDim2.new(0, 10, 0, 0)
 	lbl.BackgroundTransparency = 1
 	lbl.Font = Enum.Font.GothamSemibold
 	lbl.Text = label
 	lbl.TextSize = 13
-	lbl.TextColor3 = Theme.TextPrimary
+	lbl.TextColor3 = C.Text
 	lbl.TextXAlignment = Enum.TextXAlignment.Left
 	lbl.Parent = row
 
 	local track = Instance.new("Frame")
 	track.AnchorPoint = Vector2.new(1, 0.5)
-	track.Position = UDim2.new(1, -10, 0.5, 0)
-	track.Size = UDim2.new(0, 42, 0, 20)
-	track.BackgroundColor3 = Theme.TrackOff
+	track.Position = UDim2.new(1, -8, 0.5, 0)
+	track.Size = UDim2.new(0, 40, 0, 20)
+	track.BackgroundColor3 = C.TrackOff
 	track.BorderSizePixel = 0
 	track.Parent = row
-	corner(track, 10)
+	addCorner(track, 10)
 
 	local knob = Instance.new("Frame")
 	knob.Size = UDim2.new(0, 16, 0, 16)
 	knob.Position = UDim2.new(0, 2, 0.5, -8)
-	knob.BackgroundColor3 = Theme.Knob
+	knob.BackgroundColor3 = C.Knob
 	knob.BorderSizePixel = 0
 	knob.Parent = track
-	corner(knob, 8)
+	addCorner(knob, 8)
 
-	local function applyVisual(on)
-		tween(track, { BackgroundColor3 = on and Theme.Accent or Theme.TrackOff })
-		tween(knob,  { Position = on and UDim2.new(0, 24, 0.5, -8) or UDim2.new(0, 2, 0.5, -8) })
-		tween(row,   { BackgroundColor3 = on and Theme.BgHover or Theme.BgRaised })
+	local function setVisual(on)
+		tw(track, { BackgroundColor3 = on and C.Accent or C.TrackOff })
+		tw(knob,  { Position = on and UDim2.new(0, 22, 0.5, -8) or UDim2.new(0, 2, 0.5, -8) })
+		tw(row,   { BackgroundColor3 = on and C.SurfaceHi or C.Surface })
 	end
 
-	hit.MouseEnter:Connect(function()
-		if not State[key] then tween(row, { BackgroundColor3 = Theme.BgHover }) end
+	row.MouseEnter:Connect(function()
+		if not State[key] then tw(row, { BackgroundColor3 = C.SurfaceHi }) end
 	end)
-	hit.MouseLeave:Connect(function()
-		if not State[key] then tween(row, { BackgroundColor3 = Theme.BgRaised }) end
+	row.MouseLeave:Connect(function()
+		if not State[key] then tw(row, { BackgroundColor3 = C.Surface }) end
 	end)
 
-	hit.MouseButton1Click:Connect(function()
-		local newValue = not State[key]
-		toggleFeature(key, newValue)
-		applyVisual(State[key])
+	row.MouseButton1Click:Connect(function()
+		toggleFeature(key, not State[key])
+		setVisual(State[key])
 		refreshFooter()
 	end)
-
-	toggleRefs[key] = applyVisual
-	applyVisual(State[key])
+	setVisual(State[key])
 end
 
--- Input row: label above, input below — wider for long labels
+-- ===== Component: Input =====
 local function createInput(parentPage, label, defaultValue, onChanged)
-	local container = Instance.new("Frame")
-	container.Size = UDim2.new(1, 0, 0, 56)
-	container.BackgroundTransparency = 1
-	container.Parent = parentPage
+	local row = Instance.new("Frame")
+	row.Size = UDim2.new(1, 0, 0, 34)
+	row.BackgroundColor3 = C.Surface
+	row.BorderSizePixel = 0
+	row.Parent = parentPage
+	addCorner(row, 6)
 
-	local textLabel = Instance.new("TextLabel")
-	textLabel.Size = UDim2.new(1, 0, 0, 18)
-	textLabel.BackgroundTransparency = 1
-	textLabel.TextColor3 = Theme.TextSecondary
-	textLabel.Font = Enum.Font.GothamSemibold
-	textLabel.TextSize = 12
-	textLabel.TextXAlignment = Enum.TextXAlignment.Left
-	textLabel.Text = label
-	textLabel.Parent = container
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(0.55, 0, 1, 0)
+	lbl.Position = UDim2.new(0, 10, 0, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.TextColor3 = C.TextDim
+	lbl.Font = Enum.Font.GothamSemibold
+	lbl.TextSize = 12
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.Text = label
+	lbl.Parent = row
 
 	local boxFrame = Instance.new("Frame")
-	boxFrame.Position = UDim2.new(0, 0, 0, 22)
-	boxFrame.Size = UDim2.new(1, 0, 0, 32)
-	boxFrame.BackgroundColor3 = Theme.BgRaised
+	boxFrame.AnchorPoint = Vector2.new(1, 0.5)
+	boxFrame.Position = UDim2.new(1, -8, 0.5, 0)
+	boxFrame.Size = UDim2.new(0.4, 0, 0, 24)
+	boxFrame.BackgroundColor3 = C.BG
 	boxFrame.BorderSizePixel = 0
-	boxFrame.Parent = container
-	corner(boxFrame, 8)
-	local boxStroke = stroke(boxFrame, Theme.BorderSubtle, 1)
+	boxFrame.Parent = row
+	addCorner(boxFrame, 6)
+	local bStroke = addStroke(boxFrame, C.Border, 1)
 
 	local box = Instance.new("TextBox")
-	box.Size = UDim2.new(1, -16, 1, 0)
-	box.Position = UDim2.new(0, 8, 0, 0)
+	box.Size = UDim2.new(1, -12, 1, 0)
+	box.Position = UDim2.new(0, 6, 0, 0)
 	box.BackgroundTransparency = 1
-	box.TextColor3 = Theme.TextPrimary
-	box.PlaceholderColor3 = Theme.TextMuted
+	box.TextColor3 = C.Text
+	box.PlaceholderColor3 = C.TextMuted
 	box.PlaceholderText = tostring(defaultValue)
 	box.Text = tostring(defaultValue)
 	box.Font = Enum.Font.Gotham
-	box.TextSize = 13
-	box.TextXAlignment = Enum.TextXAlignment.Left
+	box.TextSize = 12
 	box.ClearTextOnFocus = false
 	box.Parent = boxFrame
 
 	box.Focused:Connect(function()
-		tween(boxStroke, { Color = Theme.Accent, Transparency = 0 })
-		tween(boxFrame,  { BackgroundColor3 = Theme.BgHover })
+		tw(bStroke, { Color = C.Accent })
 	end)
 	box.FocusLost:Connect(function()
 		onChanged(box.Text)
-		tween(boxStroke, { Color = Theme.BorderSubtle, Transparency = 0.2 })
-		tween(boxFrame,  { BackgroundColor3 = Theme.BgRaised })
+		tw(bStroke, { Color = C.Border })
 	end)
-	return box
 end
 
--- Action button (e.g. "Send Test")
+-- ===== Component: Action Button =====
 local function createActionButton(parentPage, label, onClick)
 	local b = Instance.new("TextButton")
-	b.Size = UDim2.new(1, 0, 0, 32)
-	b.BackgroundColor3 = Theme.AccentDim
+	b.Size = UDim2.new(1, 0, 0, 30)
+	b.BackgroundColor3 = C.AccentDim
 	b.AutoButtonColor = false
 	b.Font = Enum.Font.GothamBold
 	b.Text = label
-	b.TextSize = 13
-	b.TextColor3 = Theme.TextPrimary
+	b.TextSize = 12
+	b.TextColor3 = C.Text
 	b.Parent = parentPage
-	corner(b, 8)
-	stroke(b, Theme.Accent, 1).Transparency = 0.4
+	addCorner(b, 6)
 
-	b.MouseEnter:Connect(function() tween(b, { BackgroundColor3 = Theme.Accent }) end)
-	b.MouseLeave:Connect(function() tween(b, { BackgroundColor3 = Theme.AccentDim }) end)
+	b.MouseEnter:Connect(function() tw(b, { BackgroundColor3 = C.Accent }) end)
+	b.MouseLeave:Connect(function() tw(b, { BackgroundColor3 = C.AccentDim }) end)
 	b.MouseButton1Click:Connect(function()
-		tween(b, { BackgroundColor3 = Theme.AccentHi })
-		task.delay(0.1, function()
-			if b.Parent then tween(b, { BackgroundColor3 = Theme.Accent }) end
+		tw(b, { BackgroundColor3 = C.AccentHi })
+		task.delay(0.12, function()
+			if b.Parent then tw(b, { BackgroundColor3 = C.AccentDim }) end
 		end)
 		onClick()
 	end)
-	return b
 end
 
--- Tabs
-local function setActiveTab(name)
-	for pageName, page in pairs(pages) do
-		page.Visible = (pageName == name)
-	end
-	for tabName, ref in pairs(tabButtons) do
-		local active = tabName == name
-		tween(ref.label, { TextColor3 = active and Theme.TextPrimary or Theme.TextSecondary })
-	end
-	local target = tabButtons[name]
-	if target then
-		tween(indicator, {
-			Position = UDim2.new(0, target.button.AbsolutePosition.X - tabsBar.AbsolutePosition.X, 0, 4),
-			Size = UDim2.new(0, target.button.AbsoluteSize.X, 0, 28),
-		}, TWEEN_MED)
-	end
-end
-
-local function createTabButton(name, icon)
-	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(0, 110, 1, -8)
-	btn.BackgroundTransparency = 1
-	btn.AutoButtonColor = false
-	btn.Text = ""
-	btn.LayoutOrder = #tabOrder + 1
-	btn.Parent = tabsBar
-
-	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(1, 0, 1, 0)
-	lbl.BackgroundTransparency = 1
-	lbl.Font = Enum.Font.GothamBold
-	lbl.Text = icon .. "  " .. name
-	lbl.TextSize = 12
-	lbl.TextColor3 = Theme.TextSecondary
-	lbl.ZIndex = 2
-	lbl.Parent = btn
-
-	btn.MouseButton1Click:Connect(function() setActiveTab(name) end)
-	btn.MouseEnter:Connect(function()
-		if not pages[name].Visible then tween(lbl, { TextColor3 = Theme.TextPrimary }) end
-	end)
-	btn.MouseLeave:Connect(function()
-		if not pages[name].Visible then tween(lbl, { TextColor3 = Theme.TextSecondary }) end
-	end)
-
-	tabButtons[name] = { button = btn, label = lbl }
-	table.insert(tabOrder, name)
-end
-
-createTabButton("Main",     "⚡")
-createTabButton("Upgrades", "⚙")
-createTabButton("Webhook",  "🔔")
-
--- ===== Content =====
+-- ===== Page content =====
 createSection(pageMain, "Automation")
-createToggle(pageMain, "Auto Roll",       "AutoRoll")
-createToggle(pageMain, "Auto Index",      "AutoIndex")
-createToggle(pageMain, "Auto Farm",       "AutoFarm")
-createToggle(pageMain, "Auto Potions",    "AutoPotions")
-createToggle(pageMain, "Auto Best Zone",  "AutoTeleportBestZone")
+createToggle(pageMain, "Auto Roll",      "AutoRoll")
+createToggle(pageMain, "Auto Index",     "AutoIndex")
+createToggle(pageMain, "Auto Farm",      "AutoFarm")
+createToggle(pageMain, "Auto Potions",   "AutoPotions")
+createToggle(pageMain, "Auto Best Zone", "AutoTeleportBestZone")
 createSection(pageMain, "Settings")
-createInput(pageMain, "Best zone interval (sec)", Config.AutoBestZoneInterval, function(v)
+createInput(pageMain, "Zone interval (s)", Config.AutoBestZoneInterval, function(v)
 	Config.AutoBestZoneInterval = math.max(1, tonumber(v) or 30)
 end)
 
 createSection(pageUpgrades, "Progression")
-createToggle(pageUpgrades, "Auto Upgrade",     "AutoUpgrade")
-createToggle(pageUpgrades, "Auto Buy Zone",    "AutoBuyZone")
-createToggle(pageUpgrades, "Auto Rebirth",     "AutoRebirth")
-createToggle(pageUpgrades, "Auto Equip Best",  "AutoEquipBest")
+createToggle(pageUpgrades, "Auto Upgrade",    "AutoUpgrade")
+createToggle(pageUpgrades, "Auto Buy Zone",   "AutoBuyZone")
+createToggle(pageUpgrades, "Auto Rebirth",    "AutoRebirth")
+createToggle(pageUpgrades, "Auto Equip Best", "AutoEquipBest")
 createSection(pageUpgrades, "Settings")
-createInput(pageUpgrades, "Upgrade interval (sec)", Config.AutoUpgradeInterval, function(v)
+createInput(pageUpgrades, "Upgrade interval (s)", Config.AutoUpgradeInterval, function(v)
 	Config.AutoUpgradeInterval = math.max(1, tonumber(v) or 30)
 end)
 
-createSection(pageWebhook, "Discord")
-createToggle(pageWebhook, "Webhook reporting", "Webhook")
+createSection(pageWebhook, "Discord Webhook")
+createToggle(pageWebhook, "Webhook", "Webhook")
 createInput(pageWebhook, "Webhook URL", Config.WebhookUrl, function(v)
 	Config.WebhookUrl = tostring(v or "")
 end)
-createInput(pageWebhook, "Send interval (sec)", Config.WebhookInterval, function(v)
+createInput(pageWebhook, "Interval (s)", Config.WebhookInterval, function(v)
 	Config.WebhookInterval = math.max(1, tonumber(v) or 30)
 end)
 createSection(pageWebhook, "Actions")
@@ -919,19 +775,16 @@ createActionButton(pageWebhook, "Send test message", function()
 		return
 	end
 	local ok = SendDiscordWebhook(Config.WebhookUrl, {
-		title = "AbramSliem — test",
+		title = "AbramSliem test",
 		description = "Triggered by " .. localPlayer.Name,
 	})
-	Notify("Webhook", ok and "Test sent" or "Failed to send test")
+	Notify("Webhook", ok and "Test sent" or "Failed to send")
 end)
 
 setActiveTab("Main")
 refreshFooter()
 
--- Realign indicator after first frame so AbsolutePosition is valid
-task.defer(function() setActiveTab("Main") end)
-
--- Drag (title bar)
+-- ===== Drag (title bar + touch) =====
 local dragging = false
 local dragStart, startPos
 titleBar.InputBegan:Connect(function(input)
@@ -940,103 +793,91 @@ titleBar.InputBegan:Connect(function(input)
 		dragStart = input.Position
 		startPos = main.Position
 		input.Changed:Connect(function()
-			if input.UserInputState == Enum.UserInputState.End then
-				dragging = false
-			end
+			if input.UserInputState == Enum.UserInputState.End then dragging = false end
 		end)
 	end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
 	if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-		local delta = input.Position - dragStart
-		local newPos = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-		main.Position = newPos
-		shadow.Position = UDim2.new(newPos.X.Scale, newPos.X.Offset - 6, newPos.Y.Scale, newPos.Y.Offset - 6)
+		local d = input.Position - dragStart
+		main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
 	end
 end)
 
--- Show / hide / minimize
-local expandedSize  = UDim2.new(0, 380, 0, 520)
-local minimizedSize = UDim2.new(0, 380, 0, 42)
+-- ===== Minimize / hide =====
+local expandedSize  = UDim2.new(0, 360, 0, 480)
+local minimizedSize = UDim2.new(0, 360, 0, 38)
 local minimized = false
 local hidden = false
 
--- Floating reopen pill (also handy on touch)
+-- Floating reopen button (visible when GUI hidden)
 local pill = Instance.new("TextButton")
-pill.Size = UDim2.new(0, 44, 0, 44)
-pill.Position = UDim2.new(0, 16, 1, -60)
-pill.BackgroundColor3 = Theme.Accent
+pill.Size = UDim2.new(0, 40, 0, 40)
+pill.Position = UDim2.new(0, 14, 1, -56)
+pill.BackgroundColor3 = C.Accent
 pill.AutoButtonColor = false
 pill.Font = Enum.Font.GothamBold
 pill.Text = "AS"
-pill.TextSize = 14
-pill.TextColor3 = Theme.TextPrimary
+pill.TextSize = 13
+pill.TextColor3 = C.Text
 pill.Visible = false
 pill.Parent = screenGui
-corner(pill, 22)
-stroke(pill, Theme.AccentHi, 1.5)
-pill.MouseEnter:Connect(function() tween(pill, { BackgroundColor3 = Theme.AccentHi }) end)
-pill.MouseLeave:Connect(function() tween(pill, { BackgroundColor3 = Theme.Accent }) end)
+addCorner(pill, 20)
 
-local function setMinimized(state)
-	minimized = state
-	tween(main, { Size = state and minimizedSize or expandedSize }, TWEEN_MED)
-	tween(shadow, {
-		Size = state and UDim2.new(0, 392, 0, 54) or UDim2.new(0, 392, 0, 532),
-	}, TWEEN_MED)
-end
+pill.MouseEnter:Connect(function() tw(pill, { BackgroundColor3 = C.AccentHi }) end)
+pill.MouseLeave:Connect(function() tw(pill, { BackgroundColor3 = C.Accent }) end)
 
 local function setHidden(state)
 	hidden = state
 	if state then
-		tween(main,   { BackgroundTransparency = 1 }, TWEEN_FAST)
-		tween(shadow, { BackgroundTransparency = 1 }, TWEEN_FAST)
+		tw(main, { BackgroundTransparency = 1 })
 		task.delay(0.15, function()
 			if hidden then
 				main.Visible = false
-				shadow.Visible = false
 				pill.Visible = true
 			end
 		end)
 	else
 		main.Visible = true
-		shadow.Visible = true
 		pill.Visible = false
 		main.BackgroundTransparency = 1
-		shadow.BackgroundTransparency = 1
-		tween(main,   { BackgroundTransparency = 0 }, TWEEN_FAST)
-		tween(shadow, { BackgroundTransparency = 0.55 }, TWEEN_FAST)
+		tw(main, { BackgroundTransparency = 0 })
 	end
 end
 
-minBtn.MouseButton1Click:Connect(function() setMinimized(not minimized) end)
-closeBtn.MouseButton1Click:Connect(function() setHidden(true) end)
-hintBtn.MouseButton1Click:Connect(function() setHidden(true) end)
+local function setMinimized(state)
+	minimized = state
+	tw(main, { Size = state and minimizedSize or expandedSize }, TW_MED)
+end
+
 pill.MouseButton1Click:Connect(function() setHidden(false) end)
 
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
+UserInputService.InputBegan:Connect(function(input, gp)
+	if gp then return end
 	if input.UserInputType == Enum.UserInputType.Keyboard
 		and (input.KeyCode == Enum.KeyCode.LeftAlt or input.KeyCode == Enum.KeyCode.RightAlt) then
-		setHidden(not hidden)
+		if hidden then
+			setHidden(false)
+		elseif minimized then
+			setMinimized(false)
+		else
+			setMinimized(true)
+		end
 	end
 end)
 
--- Refresh footer when state changes externally (notifications / loop errors etc.)
+-- Footer auto-refresh
 task.spawn(function()
 	while screenGui.Parent do
-		task.wait(1)
+		task.wait(2)
 		refreshFooter()
 	end
 end)
 
--- Open animation
-main.Size = UDim2.new(0, 380, 0, 0)
-shadow.Size = UDim2.new(0, 392, 0, 0)
-main.BackgroundTransparency = 1
-shadow.BackgroundTransparency = 1
-tween(main,   { Size = expandedSize, BackgroundTransparency = 0 }, TWEEN_POP)
-tween(shadow, { Size = UDim2.new(0, 392, 0, 532), BackgroundTransparency = 0.55 }, TWEEN_POP)
+-- Startup animation
+main.Size = minimizedSize
+main.BackgroundTransparency = 0.3
+tw(main, { Size = expandedSize, BackgroundTransparency = 0 }, TW_POP)
 
 Notify("AbramSliem", "Loaded successfully.")
