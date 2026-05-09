@@ -735,18 +735,9 @@ local function createToggle(parentPage, label, key)
 		refreshFooter()
 	end)
 	
-	-- Устанавливаем начальное визуальное состояние без анимации
+-- Устанавливаем начальное визуальное состояние без анимации
 	setVisual(State[key], false)
 end
-
-	row.MouseEnter:Connect(function() tw(rowStroke, { Transparency = 0 }) end)
-	row.MouseLeave:Connect(function() tw(rowStroke, { Transparency = 0.5 }) end)
-	row.MouseButton1Click:Connect(function()
-		toggleFeature(key, not State[key])
-		setVisual(State[key])
-		refreshFooter()
-	end)
-	setVisual(State[key])
 end
 
 local function createInput(parentPage, label, defaultValue, onChanged)
