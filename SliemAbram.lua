@@ -364,9 +364,63 @@ pcall(function()
 	if oldGui then oldGui:Destroy() end
 end)
 
+-- Theme palette (refined dark crimson)
+local Theme = {
+	BgDeep        = Color3.fromRGB(15, 5, 8),
+	BgBase        = Color3.fromRGB(22, 8, 12),
+	BgRaised      = Color3.fromRGB(34, 12, 18),
+	BgHover       = Color3.fromRGB(50, 16, 24),
+	Accent        = Color3.fromRGB(190, 35, 55),
+	AccentHi      = Color3.fromRGB(225, 55, 80),
+	AccentDim     = Color3.fromRGB(120, 22, 35),
+	Border        = Color3.fromRGB(95, 22, 35),
+	BorderSubtle  = Color3.fromRGB(60, 14, 22),
+	TextPrimary   = Color3.fromRGB(255, 232, 235),
+	TextSecondary = Color3.fromRGB(220, 165, 175),
+	TextMuted     = Color3.fromRGB(160, 110, 120),
+	TrackOff      = Color3.fromRGB(55, 18, 26),
+	Knob          = Color3.fromRGB(255, 230, 232),
+	Success       = Color3.fromRGB(95, 210, 130),
+}
+
+local TWEEN_FAST = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local TWEEN_MED  = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local TWEEN_POP  = TweenInfo.new(0.32, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+local function tween(obj, props, info)
+	TweenService:Create(obj, info or TWEEN_FAST, props):Play()
+end
+
+local function corner(parent, radius)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, radius or 8)
+	c.Parent = parent
+	return c
+end
+
+local function pad(parent, all)
+	local p = Instance.new("UIPadding")
+	p.PaddingLeft   = UDim.new(0, all)
+	p.PaddingRight  = UDim.new(0, all)
+	p.PaddingTop    = UDim.new(0, all)
+	p.PaddingBottom = UDim.new(0, all)
+	p.Parent = parent
+	return p
+end
+
+local function stroke(parent, color, thickness)
+	local s = Instance.new("UIStroke")
+	s.Color = color or Theme.BorderSubtle
+	s.Thickness = thickness or 1
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.Parent = parent
+	return s
+end
+
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "AbramSliemGui"
 screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 local parentGui = gethui and gethui() or CoreGui
@@ -393,6 +447,7 @@ main.BackgroundColor3 = Color3.fromRGB(12, 2, 4)
 main.BorderSizePixel = 0
 main.ClipsDescendants = true
 main.Parent = screenGui
+corner(main, 12)
 
 local stroke = Instance.new("UIStroke")
 stroke.Color = Color3.fromRGB(160, 25, 40)
@@ -469,6 +524,36 @@ task.spawn(function()
 		task.wait(1.5)
 	end
 end)
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 12)
+titleCorner.Parent = titleBar
+
+-- Mask the bottom corners of the title bar so only the top stays rounded
+local titleMask = Instance.new("Frame")
+titleMask.Size = UDim2.new(1, 0, 0, 12)
+titleMask.Position = UDim2.new(0, 0, 1, -12)
+titleMask.BackgroundColor3 = Theme.BgRaised
+titleMask.BorderSizePixel = 0
+titleMask.ZIndex = 1
+titleMask.Parent = titleBar
+
+local titleGradient = Instance.new("UIGradient")
+titleGradient.Color = ColorSequence.new{
+	ColorSequenceKeypoint.new(0, Theme.BgRaised),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(58, 16, 26)),
+}
+titleGradient.Rotation = 0
+titleGradient.Parent = titleBar
+
+-- Accent dot before title
+local dot = Instance.new("Frame")
+dot.Size = UDim2.new(0, 10, 0, 10)
+dot.Position = UDim2.new(0, 14, 0.5, -5)
+dot.BackgroundColor3 = Theme.Accent
+dot.BorderSizePixel = 0
+dot.Parent = titleBar
+corner(dot, 5)
 
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -160, 1, 0)
@@ -602,11 +687,13 @@ tabsBar.Position = UDim2.new(0, 0, 0, 50)
 tabsBar.BackgroundColor3 = Color3.fromRGB(16, 4, 6)
 tabsBar.BorderSizePixel = 0
 tabsBar.Parent = main
+corner(tabsBar, 8)
 
 local tabsLayout = Instance.new("UIListLayout")
 tabsLayout.FillDirection = Enum.FillDirection.Horizontal
 tabsLayout.Padding = UDim.new(0, 0)
 tabsLayout.Parent = tabsBar
+pad(tabsBar, 4)
 
 -- Tab underline (animated, slides between tabs)
 local tabUnderline = Instance.new("Frame")
@@ -728,9 +815,9 @@ local function createPage(name)
 	return page
 end
 
-local pageMain = createPage("Main")
+local pageMain     = createPage("Main")
 local pageUpgrades = createPage("Upgrades")
-local pageWebhook = createPage("Webhook")
+local pageWebhook  = createPage("Webhook")
 
 local function createSectionHeader(parentPage, text)
 	local container = Instance.new("Frame")
@@ -957,8 +1044,36 @@ local function createInput(parentPage, label, defaultValue, onChanged)
 			end
 		end)
 	end)
+	return box
 end
 
+-- Action button (e.g. "Send Test")
+local function createActionButton(parentPage, label, onClick)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(1, 0, 0, 32)
+	b.BackgroundColor3 = Theme.AccentDim
+	b.AutoButtonColor = false
+	b.Font = Enum.Font.GothamBold
+	b.Text = label
+	b.TextSize = 13
+	b.TextColor3 = Theme.TextPrimary
+	b.Parent = parentPage
+	corner(b, 8)
+	stroke(b, Theme.Accent, 1).Transparency = 0.4
+
+	b.MouseEnter:Connect(function() tween(b, { BackgroundColor3 = Theme.Accent }) end)
+	b.MouseLeave:Connect(function() tween(b, { BackgroundColor3 = Theme.AccentDim }) end)
+	b.MouseButton1Click:Connect(function()
+		tween(b, { BackgroundColor3 = Theme.AccentHi })
+		task.delay(0.1, function()
+			if b.Parent then tween(b, { BackgroundColor3 = Theme.Accent }) end
+		end)
+		onClick()
+	end)
+	return b
+end
+
+-- Tabs
 local function setActiveTab(name)
 	activeTab = name
 	-- Animate page transitions (fade in/out)
@@ -1038,12 +1153,17 @@ local function createTabButton(name)
 	btn.MouseButton1Click:Connect(function()
 		setActiveTab(name)
 	end)
-	tabButtons[name] = btn
+	btn.MouseLeave:Connect(function()
+		if not pages[name].Visible then tween(lbl, { TextColor3 = Theme.TextSecondary }) end
+	end)
+
+	tabButtons[name] = { button = btn, label = lbl }
+	table.insert(tabOrder, name)
 end
 
-createTabButton("Main")
-createTabButton("Upgrades")
-createTabButton("Webhook")
+createTabButton("Main",     "⚡")
+createTabButton("Upgrades", "⚙")
+createTabButton("Webhook",  "🔔")
 
 createSectionHeader(pageMain, "Automation")
 createToggle(pageMain, "Auto Roll", "AutoRoll")
@@ -1070,16 +1190,27 @@ createToggle(pageWebhook, "Webhook", "Webhook")
 createInput(pageWebhook, "Webhook URL", Config.WebhookUrl, function(v)
 	Config.WebhookUrl = tostring(v or "")
 end)
-createInput(pageWebhook, "Webhook Interval", Config.WebhookInterval, function(v)
+createInput(pageWebhook, "Send interval (sec)", Config.WebhookInterval, function(v)
 	Config.WebhookInterval = math.max(1, tonumber(v) or 30)
 end)
-setActiveTab("Main")
+createSection(pageWebhook, "Actions")
+createActionButton(pageWebhook, "Send test message", function()
+	if not isValidWebhook(Config.WebhookUrl) then
+		Notify("Webhook", "Invalid Discord webhook URL")
+		return
+	end
+	local ok = SendDiscordWebhook(Config.WebhookUrl, {
+		title = "AbramSliem — test",
+		description = "Triggered by " .. localPlayer.Name,
+	})
+	Notify("Webhook", ok and "Test sent" or "Failed to send test")
+end)
 
 -- Dragging with smooth tween
 local dragging = false
 local dragStart, startPos
 titleBar.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		dragging = true
 		dragStart = input.Position
 		startPos = main.Position
@@ -1092,7 +1223,7 @@ titleBar.InputBegan:Connect(function(input)
 end)
 
 UserInputService.InputChanged:Connect(function(input)
-	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+	if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
 		local delta = input.Position - dragStart
 		local newPos = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
 		TweenService:Create(main, TweenInfo.new(0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
