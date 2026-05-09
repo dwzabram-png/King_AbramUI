@@ -74,8 +74,6 @@ local function Notify(title, content)
 	end)
 end
 
--- stopLoop and startLoop removed (replaced by stopFeature/startFeature)
-
 -- Safe teleport
 local function TP(x, y, z)
 	if not clientHRP then return end
@@ -329,7 +327,7 @@ local function toggleFeature(name, value)
 	else
 		stopFeature(name)
 	end
-	refreshFooter()
+	if _G.RefreshFooterUI then _G.RefreshFooterUI() end
 end
 
 -- ==================== UI v5 — PERFECT DARK MODE & WIDGET & ALL FEATURES ====================
@@ -358,7 +356,9 @@ local TW_FAST = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local TW_POP  = TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
 local function tw(obj, props, info)
-	TweenService:Create(obj, info or TW_FAST, props):Play()
+	pcall(function()
+		TweenService:Create(obj, info or TW_FAST, props):Play()
+	end)
 end
 
 local function addCorner(p, r)
@@ -387,7 +387,8 @@ main.Size = UDim2.new(0, 360, 0, 480)
 main.Position = UDim2.new(0.5, -180, 0.5, -240)
 main.BackgroundColor3 = C.BG
 main.BorderSizePixel = 0
-main.ClipsDescendants = false -- Выключено для правильных углов без бага
+main.ClipsDescendants = false
+main.Active = true -- Защита от кликов сквозь UI на мобилках
 main.Parent = screenGui
 addCorner(main, 12)
 addStroke(main, C.Border, 1)
@@ -401,7 +402,6 @@ titleBar.BorderSizePixel = 0
 titleBar.Parent = main
 addCorner(titleBar, 12)
 
--- Заплатка для нижних углов шапки (чтобы не закруглялись)
 local titlePatch = Instance.new("Frame")
 titlePatch.Size = UDim2.new(1, 0, 0, 12)
 titlePatch.Position = UDim2.new(0, 0, 1, -12)
@@ -561,7 +561,6 @@ footer.BorderSizePixel = 0
 footer.Parent = main
 addCorner(footer, 12)
 
--- Заплатка для верхних углов футера (чтобы не закруглялись)
 local footerPatch = Instance.new("Frame")
 footerPatch.Size = UDim2.new(1, 0, 0, 12)
 footerPatch.Position = UDim2.new(0, 0, 0, 0)
@@ -605,14 +604,15 @@ footerUser.TextColor3 = C.TextMuted
 footerUser.TextXAlignment = Enum.TextXAlignment.Right
 footerUser.Parent = footer
 
--- ===== FLOATING PILL WIDGET (Скрытая кнопка) =====
+-- ===== FLOATING PILL WIDGET =====
 local pill = Instance.new("TextButton")
 pill.Size = UDim2.new(0, 48, 0, 48)
 pill.Position = UDim2.new(0, 20, 0.5, -24)
 pill.BackgroundColor3 = C.Surface
 pill.AutoButtonColor = false
 pill.Text = ""
-pill.Visible = false -- Спрятана по умолчанию
+pill.Visible = false
+pill.Active = true -- Защита от случайных кликов сквозь виджет
 pill.Parent = screenGui
 addCorner(pill, 14)
 addStroke(pill, C.BorderHi, 1)
@@ -637,7 +637,7 @@ addCorner(pillStatusDot, 5)
 pill.MouseEnter:Connect(function() tw(pill, { BackgroundColor3 = C.SurfaceHi }) end)
 pill.MouseLeave:Connect(function() tw(pill, { BackgroundColor3 = C.Surface }) end)
 
-local function refreshFooter()
+_G.RefreshFooterUI = function()
 	local count = 0
 	for _, v in pairs(State) do
 		if v then count = count + 1 end
@@ -667,6 +667,7 @@ local function createSection(parentPage, label)
 	pad.PaddingLeft = UDim.new(0, 2)
 end
 
+-- ПОЛНОСТЬЮ ПЕРЕРАБОТАННАЯ И ИСПРАВЛЕННАЯ ФУНКЦИЯ ПОЛЗУНКА (БЕЗ БАГОВ)
 local function createToggle(parentPage, label, key)
 	local row = Instance.new("TextButton")
 	row.Size = UDim2.new(1, 0, 0, 40)
@@ -705,9 +706,9 @@ local function createToggle(parentPage, label, key)
 	knob.Parent = track
 	addCorner(knob, 7)
 
-	-- ИЗМЕНЕНИЯ ЗДЕСЬ: Убрали task.defer, сделали анимацию чуть плавнее и починили отступ
-	local toggleTweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-	local knobTweenInfo = TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+	-- Прямое использование TweenService для надежности на мобильных экзекуторах
+	local tInfoColor = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local tInfoPos = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 	local function setVisual(on, animate)
 		local targetBg = on and C.Green or C.Track
@@ -715,11 +716,12 @@ local function createToggle(parentPage, label, key)
 		local targetCol = on and C.Text or C.TextDim
 
 		if animate then
-			tw(track, { BackgroundColor3 = targetBg }, toggleTweenInfo)
-			tw(knob, { Position = targetPos }, knobTweenInfo)
-			tw(lbl, { TextColor3 = targetCol }, toggleTweenInfo)
+			pcall(function()
+				TweenService:Create(track, tInfoColor, {BackgroundColor3 = targetBg}):Play()
+				TweenService:Create(knob, tInfoPos, {Position = targetPos}):Play()
+				TweenService:Create(lbl, tInfoColor, {TextColor3 = targetCol}):Play()
+			end)
 		else
-			-- При первой загрузке применяем стили без анимации
 			track.BackgroundColor3 = targetBg
 			knob.Position = targetPos
 			lbl.TextColor3 = targetCol
@@ -731,11 +733,10 @@ local function createToggle(parentPage, label, key)
 	
 	row.MouseButton1Click:Connect(function()
 		toggleFeature(key, not State[key])
-		setVisual(State[key], true) -- true = проигрывать анимацию
-		refreshFooter()
+		setVisual(State[key], true)
 	end)
 	
--- Устанавливаем начальное визуальное состояние без анимации
+	-- Устанавливаем начальное состояние без проигрывания анимации
 	setVisual(State[key], false)
 end
 
@@ -824,9 +825,8 @@ local function createActionButton(parentPage, label, onClick)
 	end)
 end
 
--- ===== СОЗДАНИЕ ВСЕХ ЭЛЕМЕНТОВ (Вкладки, Инпуты, Кнопки) =====
+-- ===== СОЗДАНИЕ ВСЕХ ЭЛЕМЕНТОВ =====
 
--- Вкладка Main
 createSection(pageMain, "Automation")
 createToggle(pageMain, "Auto Roll",      "AutoRoll")
 createToggle(pageMain, "Auto Index",     "AutoIndex")
@@ -838,7 +838,6 @@ createInput(pageMain, "Zone interval (s)", Config.AutoBestZoneInterval, function
 	Config.AutoBestZoneInterval = math.max(1, tonumber(v) or 30)
 end)
 
--- Вкладка Upgrades
 createSection(pageUpgrades, "Progression")
 createToggle(pageUpgrades, "Auto Upgrade",    "AutoUpgrade")
 createToggle(pageUpgrades, "Auto Buy Zone",   "AutoBuyZone")
@@ -849,7 +848,6 @@ createInput(pageUpgrades, "Upgrade interval (s)", Config.AutoUpgradeInterval, fu
 	Config.AutoUpgradeInterval = math.max(1, tonumber(v) or 30)
 end)
 
--- Вкладка Webhook
 createSection(pageWebhook, "Discord Webhook")
 createToggle(pageWebhook, "Webhook", "Webhook")
 createInput(pageWebhook, "Webhook URL", Config.WebhookUrl, function(v)
@@ -872,13 +870,13 @@ createActionButton(pageWebhook, "Send test message", function()
 end)
 
 setActiveTab("Main")
-refreshFooter()
+_G.RefreshFooterUI()
 
 -- ===== DRAG & ALT HIDE LOGIC =====
 
--- Таскаем главное окно
 local draggingMain = false
 local dragStartM, startPosM
+
 titleBar.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		draggingMain = true
@@ -887,9 +885,10 @@ titleBar.InputBegan:Connect(function(input)
 	end
 end)
 
--- Таскаем виджет (с защитой от случайного клика при перетаскивании)
 local pillDrag = false
 local pDragStart, pStartPos, pMoved
+local DRAG_THRESHOLD = 15 -- Увеличенный порог для мобильных свайпов
+
 pill.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		pillDrag = true
@@ -906,7 +905,7 @@ UserInputService.InputChanged:Connect(function(input)
 			main.Position = UDim2.new(startPosM.X.Scale, startPosM.X.Offset + d.X, startPosM.Y.Scale, startPosM.Y.Offset + d.Y)
 		elseif pillDrag then
 			local d = input.Position - pDragStart
-			if d.Magnitude > 5 then pMoved = true end -- Если курсор сдвинулся, это перетаскивание, а не клик
+			if d.Magnitude > DRAG_THRESHOLD then pMoved = true end
 			pill.Position = UDim2.new(pStartPos.X.Scale, pStartPos.X.Offset + d.X, pStartPos.Y.Scale, pStartPos.Y.Offset + d.Y)
 		end
 	end
@@ -919,34 +918,31 @@ UserInputService.InputEnded:Connect(function(input)
 	end
 end)
 
--- Плавное скрытие/появление меню
 local hidden = false
 local function toggleMenu()
 	hidden = not hidden
 	if hidden then
-		tw(main, { Size = UDim2.new(0, 340, 0, 460) }, TW_FAST) -- Чуть сжимаем главное окно
+		tw(main, { Size = UDim2.new(0, 340, 0, 460) }, TW_FAST)
 		task.delay(0.1, function()
 			if hidden then
 				main.Visible = false
 				pill.Visible = true
 				pill.Size = UDim2.new(0, 36, 0, 36)
-				tw(pill, { Size = UDim2.new(0, 48, 0, 48) }, TW_POP) -- Выпрыгивает виджет
+				tw(pill, { Size = UDim2.new(0, 48, 0, 48) }, TW_POP)
 			end
 		end)
 	else
 		pill.Visible = false
 		main.Visible = true
 		main.Size = UDim2.new(0, 340, 0, 460)
-		tw(main, { Size = UDim2.new(0, 360, 0, 480) }, TW_POP) -- Выпрыгивает главное окно
+		tw(main, { Size = UDim2.new(0, 360, 0, 480) }, TW_POP)
 	end
 end
 
--- Открываем по клику на виджет (если мы его не тащили)
 pill.MouseButton1Click:Connect(function()
 	if not pMoved then toggleMenu() end
 end)
 
--- Хоткей Alt
 UserInputService.InputBegan:Connect(function(input, gp)
 	if gp then return end
 	if input.KeyCode == Enum.KeyCode.LeftAlt or input.KeyCode == Enum.KeyCode.RightAlt then
@@ -957,8 +953,8 @@ end)
 task.spawn(function()
 	while screenGui.Parent do
 		task.wait(2)
-		refreshFooter()
+		_G.RefreshFooterUI()
 	end
 end)
 
-Notify("AbramSliem", "Loaded successfully. Press ALT to hide.")
+Notify("AbramSliem", "Loaded successfully. Press ALT or click AS icon.")
