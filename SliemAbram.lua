@@ -1,4 +1,4 @@
-if not game:IsLoaded() then game.Loaded:Wait() end
+wait(1)
 
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
@@ -369,7 +369,7 @@ local function startFeature(name)
 	if not cfg then return end
 
 	if cfg.kind == "task_loop" then
-		local thread = task.spawn(function()
+		local thread = spawn(function()
 			while State[name] do
 				local ok, err = pcall(cfg.action)
 				if not ok then
@@ -377,7 +377,7 @@ local function startFeature(name)
 					break
 				end
 				if not State[name] then break end
-				task.wait(cfg.getInterval())
+				wait(cfg.getInterval())
 			end
 			activeFeatures[name] = nil
 		end)
@@ -1024,7 +1024,7 @@ end)
 
 task.spawn(function()
 	while screenGui.Parent do
-		task.wait(2)
+		wait(2)
 		if _G.RefreshFooterUI then _G.RefreshFooterUI() end
 	end
 end)
