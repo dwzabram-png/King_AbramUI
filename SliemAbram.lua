@@ -700,19 +700,44 @@ local function createToggle(parentPage, label, key)
 
 	local knob = Instance.new("Frame")
 	knob.Size = UDim2.new(0, 14, 0, 14)
-	knob.Position = UDim2.new(0, 3, 0, 3) -- 3px от верха (трек 20px, ползунок 14px: (20-14)/2=3)
+	knob.Position = UDim2.new(0, 3, 0, 3)
 	knob.BackgroundColor3 = C.Knob
 	knob.Parent = track
 	addCorner(knob, 7)
 
-	local function setVisual(on)
-		tw(track, { BackgroundColor3 = on and C.Green or C.Track })
-		local knobPos = on and UDim2.new(0, 22, 0, 3) or UDim2.new(0, 3, 0, 3) -- 22: трек 36px - ползунок 14px = 22
-		task.defer(function()
-			tw(knob, { Position = knobPos })
-		end)
-		tw(lbl,   { TextColor3 = on and C.Text or C.TextDim })
+	-- ИЗМЕНЕНИЯ ЗДЕСЬ: Убрали task.defer, сделали анимацию чуть плавнее и починили отступ
+	local toggleTweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local knobTweenInfo = TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+	local function setVisual(on, animate)
+		local targetBg = on and C.Green or C.Track
+		local targetPos = on and UDim2.new(0, 19, 0, 3) or UDim2.new(0, 3, 0, 3)
+		local targetCol = on and C.Text or C.TextDim
+
+		if animate then
+			tw(track, { BackgroundColor3 = targetBg }, toggleTweenInfo)
+			tw(knob, { Position = targetPos }, knobTweenInfo)
+			tw(lbl, { TextColor3 = targetCol }, toggleTweenInfo)
+		else
+			-- При первой загрузке применяем стили без анимации
+			track.BackgroundColor3 = targetBg
+			knob.Position = targetPos
+			lbl.TextColor3 = targetCol
+		end
 	end
+
+	row.MouseEnter:Connect(function() tw(rowStroke, { Transparency = 0 }) end)
+	row.MouseLeave:Connect(function() tw(rowStroke, { Transparency = 0.5 }) end)
+	
+	row.MouseButton1Click:Connect(function()
+		toggleFeature(key, not State[key])
+		setVisual(State[key], true) -- true = проигрывать анимацию
+		refreshFooter()
+	end)
+	
+	-- Устанавливаем начальное визуальное состояние без анимации
+	setVisual(State[key], false)
+end
 
 	row.MouseEnter:Connect(function() tw(rowStroke, { Transparency = 0 }) end)
 	row.MouseLeave:Connect(function() tw(rowStroke, { Transparency = 0.5 }) end)
