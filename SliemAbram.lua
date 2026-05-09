@@ -37,10 +37,11 @@ local State = {
 	AutoBuyZone = false,
 	AutoRebirth = false,
 	AutoEquipBest = false,
+	AutoKill = false,
 	Webhook = false
 }
 local Config = {
-	AutoBestZoneInterval = 30,
+	AutoBestZoneInterval = 15,
 	AutoUpgradeInterval = 30,
 	WebhookUrl = "",
 	WebhookInterval = 30
@@ -202,7 +203,20 @@ local function TeleportBestZone()
 			if num and num > best then best = num end
 		end
 	end
-	Teleport(best + 1)
+	if best > 0 then Teleport(best) end
+end
+
+local function AutoKill()
+	if not State.AutoKill or not clientHRP then return end
+	local enemiesFolder = workspace:FindFirstChild("Gameplay73") and workspace.Gameplay73:FindFirstChild("Enemies")
+	if not enemiesFolder then return end
+
+	for _, enemy in ipairs(enemiesFolder:GetChildren()) do
+		if enemy:FindFirstChild("HumanoidRootPart") and enemy:FindFirstChild("Humanoid") and enemy.Humanoid.Health > 0 then
+			clientHRP.CFrame = enemy.HumanoidRootPart.CFrame
+			task.wait(0.2)
+		end
+	end
 end
 
 -- ==================== FEATURE CONFIGURATION ====================
@@ -263,6 +277,11 @@ local FEATURES = {
 		kind = "task_loop",
 		getInterval = function() return 10 end,
 		action = function() callRemote("InventoryService", "requestEquipBest") end
+	},
+	AutoKill = {
+		kind = "task_loop",
+		getInterval = function() return 0.5 end,
+		action = function() AutoKill() end
 	},
 	Webhook = {
 		kind = "task_loop",
@@ -832,6 +851,7 @@ createToggle(pageMain, "Auto Roll",      "AutoRoll")
 createToggle(pageMain, "Auto Index",     "AutoIndex")
 createToggle(pageMain, "Auto Farm",      "AutoFarm")
 createToggle(pageMain, "Auto Potions",   "AutoPotions")
+createToggle(pageMain, "Auto Kill",      "AutoKill")
 createToggle(pageMain, "Auto Best Zone", "AutoTeleportBestZone")
 createSection(pageMain, "Settings")
 createInput(pageMain, "Zone interval (s)", Config.AutoBestZoneInterval, function(v)
