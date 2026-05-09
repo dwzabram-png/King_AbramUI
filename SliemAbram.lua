@@ -694,19 +694,23 @@ local function createToggle(parentPage, label, key)
 	track.Position = UDim2.new(1, -14, 0.5, 0)
 	track.Size = UDim2.new(0, 36, 0, 20)
 	track.BackgroundColor3 = C.Track
+	track.ClipsDescendants = false
 	track.Parent = row
 	addCorner(track, 10)
 
 	local knob = Instance.new("Frame")
 	knob.Size = UDim2.new(0, 14, 0, 14)
-	knob.Position = UDim2.new(0, 3, 0.5, -7)
+	knob.Position = UDim2.new(0, 3, 0, 3) -- 3px от верха (трек 20px, ползунок 14px: (20-14)/2=3)
 	knob.BackgroundColor3 = C.Knob
 	knob.Parent = track
 	addCorner(knob, 7)
 
 	local function setVisual(on)
 		tw(track, { BackgroundColor3 = on and C.Green or C.Track })
-		tw(knob,  { Position = on and UDim2.new(0, 19, 0.5, -7) or UDim2.new(0, 3, 0.5, -7) })
+		local knobPos = on and UDim2.new(0, 22, 0, 3) or UDim2.new(0, 3, 0, 3) -- 22: трек 36px - ползунок 14px = 22
+		task.defer(function()
+			tw(knob, { Position = knobPos })
+		end)
 		tw(lbl,   { TextColor3 = on and C.Text or C.TextDim })
 	end
 
