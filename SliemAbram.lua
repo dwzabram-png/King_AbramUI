@@ -1,4 +1,4 @@
-wait(1)
+repeat task.wait() until game:IsLoaded()
 
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
@@ -37,56 +37,28 @@ local State = {
 	AutoBuyZone = false,
 	AutoRebirth = false,
 	AutoEquipBest = false,
-	AutoKill = false,
 	Webhook = false
 }
 local Config = {
-	AutoBestZoneInterval = 15,
+	AutoBestZoneInterval = 30,
 	AutoUpgradeInterval = 30,
 	WebhookUrl = "",
 	WebhookInterval = 30
 }
 
--- Безопасный поиск _remotes (перебор папок, не зависит от порядка и имени библиотеки)
-local RemotesFolder = nil
-pcall(function()
-	local packages = ReplicatedStorage:WaitForChild("Packages", 10)
-	local index = packages:WaitForChild("_Index", 10)
-	for _, folder in ipairs(index:GetChildren()) do
-		if folder:IsA("Folder") then
-			local nw = folder:FindFirstChild("networker")
-			if nw then
-				local remotes = nw:FindFirstChild("_remotes")
-				if remotes then
-					RemotesFolder = remotes
-					break
-				end
-			end
-		end
-	end
-end)
+-- Centralized remote caller
+local RemotesFolder = ReplicatedStorage:WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("leifstout_networker@0.3.1"):WaitForChild("networker"):WaitForChild("_remotes")
 
 local function callRemote(service, method, ...)
-	if not RemotesFolder then
-		Notify("Remote Error", "RemotesFolder not found")
-		return false
-	end
 	local remote = RemotesFolder:FindFirstChild(service)
-	if not remote then
-		Notify("Remote Error", "Service " .. service .. " not found")
-		return false
-	end
+	if not remote then return false, "Remote folder not found" end
 	local func = remote:FindFirstChild("RemoteFunction")
-	if not func then
-		Notify("Remote Error", "RemoteFunction not found in " .. service)
-		return false
-	end
-	local ok, result = pcall(function()
-		return func:InvokeServer(method, ...)
-	end)
+	if not func then return false, "RemoteFunction not found" end
+	local ok, result = pcall(function(...)
+		return func:InvokeServer(...)
+	end, method, ...)
 	if not ok then
-		Notify("Remote Error", tostring(result))
-		return false
+		return false, result
 	end
 	return true, result
 end
@@ -230,47 +202,7 @@ local function TeleportBestZone()
 			if num and num > best then best = num end
 		end
 	end
-	if best > 0 then Teleport(best) end
-end
-
-local function AutoKill()
-	if not State.AutoKill or not clientHRP then return end
-	
-	-- Динамический поиск папки Gameplay (т.к. номер меняется, например Gameplay303)
-	local gameplay = nil
-	for _, child in ipairs(workspace:GetChildren()) do
-		if child.Name:match("^Gameplay") then
-			gameplay = child
-			break
-		end
-	end
-	
-	if not gameplay then return end
-	
-	local enemiesFolder = gameplay:FindFirstChild("Enemies")
-	if not enemiesFolder then return end
-
-	local enemies = enemiesFolder:GetChildren()
-	if #enemies == 0 then return end
-
-	for _, enemy in ipairs(enemies) do
-		if not State.AutoKill then break end
-		
-		-- Ищем RootPart (как в твоём примере) или стандартный HumanoidRootPart
-		local root = enemy:FindFirstChild("RootPart") or enemy:FindFirstChild("HumanoidRootPart")
-		local hum = enemy:FindFirstChild("Humanoid")
-		
-		-- Если RootPart оказался папкой/моделью, ищем в ней деталь Root
-		if root and not root:IsA("BasePart") then
-			root = root:FindFirstChild("Root") or root:FindFirstChild("HumanoidRootPart")
-		end
-		
-		if root and root:IsA("BasePart") and hum and hum.Health > 0 then
-			clientHRP.CFrame = root.CFrame
-			task.wait(0.1)
-			break -- Переходим к следующему циклу поиска, чтобы обновить список целей
-		end
-	end
+	Teleport(best + 1)
 end
 
 -- ==================== FEATURE CONFIGURATION ====================
@@ -332,11 +264,6 @@ local FEATURES = {
 		getInterval = function() return 10 end,
 		action = function() callRemote("InventoryService", "requestEquipBest") end
 	},
-	AutoKill = {
-		kind = "task_loop",
-		getInterval = function() return 0.5 end,
-		action = function() AutoKill() end
-	},
 	Webhook = {
 		kind = "task_loop",
 		getInterval = function() return Config.WebhookInterval end,
@@ -371,7 +298,7 @@ local function startFeature(name)
 	if not cfg then return end
 
 	if cfg.kind == "task_loop" then
-		local thread = spawn(function()
+		local thread = task.spawn(function()
 			while State[name] do
 				local ok, err = pcall(cfg.action)
 				if not ok then
@@ -379,7 +306,7 @@ local function startFeature(name)
 					break
 				end
 				if not State[name] then break end
-				wait(cfg.getInterval())
+				task.wait(cfg.getInterval())
 			end
 			activeFeatures[name] = nil
 		end)
@@ -905,7 +832,6 @@ createToggle(pageMain, "Auto Roll",      "AutoRoll")
 createToggle(pageMain, "Auto Index",     "AutoIndex")
 createToggle(pageMain, "Auto Farm",      "AutoFarm")
 createToggle(pageMain, "Auto Potions",   "AutoPotions")
-createToggle(pageMain, "Auto Kill",      "AutoKill")
 createToggle(pageMain, "Auto Best Zone", "AutoTeleportBestZone")
 createSection(pageMain, "Settings")
 createInput(pageMain, "Zone interval (s)", Config.AutoBestZoneInterval, function(v)
@@ -944,7 +870,7 @@ createActionButton(pageWebhook, "Send test message", function()
 end)
 
 setActiveTab("Main")
-if _G.RefreshFooterUI then _G.RefreshFooterUI() end
+_G.RefreshFooterUI()
 
 -- ===== DRAG & ALT HIDE LOGIC =====
 
@@ -1026,8 +952,8 @@ end)
 
 task.spawn(function()
 	while screenGui.Parent do
-		wait(2)
-		if _G.RefreshFooterUI then _G.RefreshFooterUI() end
+		task.wait(2)
+		_G.RefreshFooterUI()
 	end
 end)
 
