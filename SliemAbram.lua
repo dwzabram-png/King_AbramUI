@@ -1,16 +1,12 @@
 repeat task.wait() until game:IsLoaded()
 
-local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
-local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
-local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
-
 local Players = game:GetService("Players")
-local GuiService = game:GetService("GuiService")
 local HttpService = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
 local VirtualUser = game:GetService("VirtualUser")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
 
 local localPlayer = Players.LocalPlayer
 local client, clientHRP
@@ -29,40 +25,71 @@ localPlayer.Idled:Connect(function()
 	VirtualUser:ClickButton2(Vector2.new())
 end)
 
--- UI
-local Window = Fluent:CreateWindow({
-	Title = "Plink Slime RNG v2.0",
-	SubTitle = "by who?",
-	TabWidth = 160,
-	Size = UDim2.fromOffset(580, 460),
-	Acrylic = false,
-	Theme = "Dark",
-	MinimizeKey = Enum.KeyCode.LeftControl
-})
-
-local Tabs = {
-	Main = Window:AddTab({ Title = "Main", Icon = "" }),
-	Upgrades = Window:AddTab({ Title = "Upgrades", Icon = "" }),
-	Webhooks = Window:AddTab({ Title = "Webhooks", Icon = "" }),
-	Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
+local loopThreads = {}
+local State = {
+	AutoRoll = false,
+	AutoIndex = false,
+	AutoFarm = false,
+	AutoPotions = false,
+	AutoTeleportBestZone = false,
+	AutoUpgrade = false,
+	AutoBuyZone = false,
+	AutoRebirth = false,
+	AutoEquipBest = false,
+	Webhook = false
 }
-
-local Options = Fluent.Options
+local Config = {
+	AutoBestZoneInterval = 30,
+	AutoUpgradeInterval = 30,
+	WebhookUrl = "",
+	WebhookInterval = 30
+}
 
 -- Centralized remote caller (removes duplication)
 local RemotesFolder = ReplicatedStorage:WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("leifstout_networker@0.3.1"):WaitForChild("networker"):WaitForChild("_remotes")
 
 local function callRemote(service, method, ...)
 	local remote = RemotesFolder:FindFirstChild(service)
-	if not remote then return nil, "Remote folder not found" end
+	if not remote then return false, "Remote folder not found" end
 	local func = remote:FindFirstChild("RemoteFunction")
-	if not func then return nil, "RemoteFunction not found" end
-	return pcall(function(...) return func:InvokeServer(...) end, method, ...)
+	if not func then return false, "RemoteFunction not found" end
+	local ok, result = pcall(function(...)
+		return func:InvokeServer(...)
+	end, method, ...)
+	if not ok then
+		return false, result
+	end
+	return true, result
 end
 
 -- Notifications
 local function Notify(title, content)
-	Fluent:Notify({ Title = title, Content = content, Duration = 5 })
+	pcall(function()
+		game:GetService("StarterGui"):SetCore("SendNotification", {
+			Title = tostring(title),
+			Text = tostring(content),
+			Duration = 4
+		})
+	end)
+end
+
+local function stopLoop(name)
+	local thread = loopThreads[name]
+	if thread then
+		pcall(task.cancel, thread)
+		loopThreads[name] = nil
+	end
+end
+
+local function startLoop(name, loopFn)
+	stopLoop(name)
+	loopThreads[name] = task.spawn(function()
+		local ok, err = pcall(loopFn)
+		if not ok then
+			Notify("Loop Error", name .. ": " .. tostring(err))
+		end
+		loopThreads[name] = nil
+	end)
 end
 
 -- Safe teleport
@@ -73,12 +100,20 @@ end
 
 -- Discord webhook with validation
 local function isValidWebhook(url)
-	return type(url) == "string" and url:match("^https://discord%.com/api/webhooks/%d+/.+") ~= nil
+	return type(url) == "string" and (
+		url:match("^https://discord%.com/api/webhooks/%d+/.+") ~= nil
+		or url:match("^https://discordapp%.com/api/webhooks/%d+/.+") ~= nil
+	)
 end
 
 local function SendDiscordWebhook(url, data)
 	if not isValidWebhook(url) then
 		Notify("Webhook Error", "Invalid Discord webhook URL")
+		return false
+	end
+	local requestFn = request or http_request or (syn and syn.request)
+	if not requestFn then
+		Notify("Webhook Error", "HTTP request API is not available in this executor")
 		return false
 	end
 	local body = {
@@ -93,7 +128,7 @@ local function SendDiscordWebhook(url, data)
 		attachments = {}
 	}
 	local success, err = pcall(function()
-		request({
+		requestFn({
 			Url = url,
 			Method = "POST",
 			Headers = { ["Content-Type"] = "application/json" },
@@ -127,7 +162,7 @@ local function Upgrade()
 	local tiles = getUpgradeTiles()
 	if not tiles then return end
 	for _, tile in ipairs(tiles) do
-		if tile:IsA("GuiButton") or (tile.Name ~= "UIAspectRatioConstraint" and tile.Name ~= "UpgradeHoverInfo") then
+		if tile:IsA("GuiButton") and tile.Name ~= "UIAspectRatioConstraint" and tile.Name ~= "UpgradeHoverInfo" then
 			local upgrade = tile.Name:match("^(%S+)Tile")
 			if upgrade then
 				callRemote("UpgradeService", "requestUnlock", upgrade)
@@ -188,213 +223,321 @@ local function TeleportBestZone()
 	Teleport(best + 1)
 end
 
--- ==================== TABS ====================
+-- ==================== LOGIC ====================
+local autoFarmConnection
 
-Tabs.Main:AddButton({
-	Title = "Discord",
-	Description = "Join the discord for updates <3",
-	Callback = function()
-		setclipboard("https://discord.gg/hJCn7UnkVZ")
-		Notify("Discord", "Link copied to clipboard.")
+local function toggleFeature(name, value)
+	State[name] = value
+	Notify(name, value and "Enabled" or "Disabled")
+
+	if name == "AutoRoll" then
+		if value then
+			startLoop("AutoRoll", function()
+				while State.AutoRoll do
+					local cd = getRollCooldown()
+					task.wait(cd)
+					if State.AutoRoll then Roll() end
+				end
+			end)
+		else
+			stopLoop("AutoRoll")
+		end
+	elseif name == "AutoIndex" then
+		if value then
+			startLoop("AutoIndex", function()
+				while State.AutoIndex do
+					task.wait(30)
+					if State.AutoIndex then ClaimIndex() end
+				end
+			end)
+		else
+			stopLoop("AutoIndex")
+		end
+	elseif name == "AutoFarm" then
+		if autoFarmConnection then autoFarmConnection:Disconnect() end
+		if value then
+			autoFarmConnection = RunService.Heartbeat:Connect(function()
+				if not State.AutoFarm or not clientHRP then return end
+				local lootFolder = workspace:FindFirstChild("Loot")
+				if not lootFolder then return end
+				for _, drop in ipairs(lootFolder:GetChildren()) do
+					if not State.AutoFarm then break end
+					for _, child in ipairs(drop:GetChildren()) do
+						if child:IsA("BasePart") and child.Name ~= "LootHighlight" then
+							child.CFrame = clientHRP.CFrame
+						end
+					end
+				end
+			end)
+		end
+	elseif name == "AutoPotions" then
+		if value then
+			startLoop("AutoPotions", function()
+				while State.AutoPotions do
+					ConsumePotions()
+					task.wait(3)
+				end
+			end)
+		else
+			stopLoop("AutoPotions")
+		end
+	elseif name == "AutoTeleportBestZone" then
+		if value then
+			startLoop("AutoTeleportBestZone", function()
+				while State.AutoTeleportBestZone do
+					TeleportBestZone()
+					task.wait(Config.AutoBestZoneInterval)
+				end
+			end)
+		else
+			stopLoop("AutoTeleportBestZone")
+		end
+	elseif name == "AutoUpgrade" then
+		if value then
+			startLoop("AutoUpgrade", function()
+				while State.AutoUpgrade do
+					Upgrade()
+					task.wait(Config.AutoUpgradeInterval)
+				end
+			end)
+		else
+			stopLoop("AutoUpgrade")
+		end
+	elseif name == "AutoBuyZone" then
+		if value then
+			startLoop("AutoBuyZone", function()
+				while State.AutoBuyZone do
+					callRemote("ZonesService", "requestPurchaseZone")
+					task.wait(5)
+				end
+			end)
+		else
+			stopLoop("AutoBuyZone")
+		end
+	elseif name == "AutoRebirth" then
+		if value then
+			startLoop("AutoRebirth", function()
+				while State.AutoRebirth do
+					callRemote("RebirthService", "requestRebirth")
+					task.wait(5)
+				end
+			end)
+		else
+			stopLoop("AutoRebirth")
+		end
+	elseif name == "AutoEquipBest" then
+		if value then
+			startLoop("AutoEquipBest", function()
+				while State.AutoEquipBest do
+					callRemote("InventoryService", "requestEquipBest")
+					task.wait(10)
+				end
+			end)
+		else
+			stopLoop("AutoEquipBest")
+		end
+	elseif name == "Webhook" then
+		if value then
+			startLoop("Webhook", function()
+				while State.Webhook do
+					if isValidWebhook(Config.WebhookUrl) and clientHRP then
+						local titleGui = safeFind(client, "Head", "TitleGui") or safeFind(clientHRP, "TitleGui")
+						local numRolls = titleGui and titleGui:FindFirstChild("NumRolls") and titleGui.NumRolls.Text or "N/A"
+						SendDiscordWebhook(Config.WebhookUrl, {
+							title = localPlayer.Name,
+							description = numRolls
+						})
+					end
+					task.wait(Config.WebhookInterval)
+				end
+			end)
+		else
+			stopLoop("Webhook")
+		end
 	end
-})
+end
 
--- Auto Roll
-local autoRollConnection
-local AutoRoll = Tabs.Main:AddToggle("AutoRoll", { Title = "Auto Roll", Default = false })
-AutoRoll:OnChanged(function()
-	Notify("Auto Roll", tostring(Options.AutoRoll.Value))
-	if autoRollConnection then autoRollConnection:Disconnect() end
-	if Options.AutoRoll.Value then
-		autoRollConnection = task.spawn(function()
-			while Options.AutoRoll.Value do
-				local cd = getRollCooldown()
-				task.wait(cd)
-				if Options.AutoRoll.Value then Roll() end
+-- ==================== DARK RED UI ====================
+pcall(function()
+	local oldGui = CoreGui:FindFirstChild("AbramSliemGui")
+	if oldGui then oldGui:Destroy() end
+end)
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AbramSliemGui"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+local parentGui = gethui and gethui() or CoreGui
+screenGui.Parent = parentGui
+
+local main = Instance.new("Frame")
+main.Size = UDim2.new(0, 360, 0, 480)
+main.Position = UDim2.new(0.5, -180, 0.5, -240)
+main.BackgroundColor3 = Color3.fromRGB(20, 5, 8)
+main.BorderSizePixel = 0
+main.Parent = screenGui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 10)
+corner.Parent = main
+
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(150, 25, 40)
+stroke.Thickness = 1.5
+stroke.Parent = main
+
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 38)
+titleBar.BackgroundColor3 = Color3.fromRGB(45, 10, 16)
+titleBar.BorderSizePixel = 0
+titleBar.Parent = main
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 10)
+titleCorner.Parent = titleBar
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -12, 1, 0)
+title.Position = UDim2.new(0, 12, 0, 0)
+title.BackgroundTransparency = 1
+title.Font = Enum.Font.GothamBold
+title.Text = "AbramSliem"
+title.TextSize = 20
+title.TextColor3 = Color3.fromRGB(255, 220, 220)
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = titleBar
+
+local listHolder = Instance.new("ScrollingFrame")
+listHolder.Size = UDim2.new(1, -12, 1, -50)
+listHolder.Position = UDim2.new(0, 6, 0, 44)
+listHolder.BackgroundTransparency = 1
+listHolder.BorderSizePixel = 0
+listHolder.CanvasSize = UDim2.new(0, 0, 0, 900)
+listHolder.ScrollBarThickness = 4
+listHolder.Parent = main
+
+local layout = Instance.new("UIListLayout")
+layout.Padding = UDim.new(0, 6)
+layout.Parent = listHolder
+
+local function createButton(text, callback)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1, -6, 0, 28)
+	btn.BackgroundColor3 = Color3.fromRGB(75, 16, 24)
+	btn.TextColor3 = Color3.fromRGB(255, 232, 232)
+	btn.Font = Enum.Font.GothamSemibold
+	btn.TextSize = 13
+	btn.Text = text
+	btn.AutoButtonColor = true
+	btn.Parent = listHolder
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 6)
+	c.Parent = btn
+	btn.MouseButton1Click:Connect(callback)
+end
+
+local function createToggle(label, key)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1, -6, 0, 28)
+	btn.BackgroundColor3 = Color3.fromRGB(50, 12, 18)
+	btn.TextColor3 = Color3.fromRGB(255, 232, 232)
+	btn.Font = Enum.Font.GothamSemibold
+	btn.TextSize = 13
+	btn.Text = label .. ": OFF"
+	btn.AutoButtonColor = true
+	btn.Parent = listHolder
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 6)
+	c.Parent = btn
+	btn.MouseButton1Click:Connect(function()
+		local newValue = not State[key]
+		toggleFeature(key, newValue)
+		btn.Text = label .. ": " .. (State[key] and "ON" or "OFF")
+	end)
+end
+
+local function createInput(label, defaultValue, onChanged)
+	local container = Instance.new("Frame")
+	container.Size = UDim2.new(1, -6, 0, 28)
+	container.BackgroundTransparency = 1
+	container.Parent = listHolder
+	local textLabel = Instance.new("TextLabel")
+	textLabel.Size = UDim2.new(0.52, 0, 1, 0)
+	textLabel.BackgroundTransparency = 1
+	textLabel.TextColor3 = Color3.fromRGB(255, 210, 210)
+	textLabel.Font = Enum.Font.Gotham
+	textLabel.TextSize = 12
+	textLabel.TextXAlignment = Enum.TextXAlignment.Left
+	textLabel.Text = label
+	textLabel.Parent = container
+	local box = Instance.new("TextBox")
+	box.Size = UDim2.new(0.48, -4, 1, 0)
+	box.Position = UDim2.new(0.52, 4, 0, 0)
+	box.BackgroundColor3 = Color3.fromRGB(40, 9, 14)
+	box.TextColor3 = Color3.fromRGB(255, 240, 240)
+	box.PlaceholderText = tostring(defaultValue)
+	box.Text = tostring(defaultValue)
+	box.Font = Enum.Font.Gotham
+	box.TextSize = 12
+	box.ClearTextOnFocus = false
+	box.Parent = container
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 6)
+	c.Parent = box
+	box.FocusLost:Connect(function()
+		onChanged(box.Text)
+	end)
+end
+
+createButton("Copy Discord Link", function()
+	pcall(setclipboard, "https://discord.gg/hJCn7UnkVZ")
+	Notify("Discord", "Link copied to clipboard.")
+end)
+createToggle("Auto Roll", "AutoRoll")
+createToggle("Auto Index", "AutoIndex")
+createToggle("Auto Farm", "AutoFarm")
+createToggle("Auto Potions", "AutoPotions")
+createToggle("Auto Best Zone", "AutoTeleportBestZone")
+createToggle("Auto Upgrade", "AutoUpgrade")
+createToggle("Auto Buy Zone", "AutoBuyZone")
+createToggle("Auto Rebirth", "AutoRebirth")
+createToggle("Auto Equip Best", "AutoEquipBest")
+createToggle("Webhook", "Webhook")
+
+createInput("Best Zone Interval", Config.AutoBestZoneInterval, function(v)
+	Config.AutoBestZoneInterval = math.max(1, tonumber(v) or 30)
+end)
+createInput("Upgrade Interval", Config.AutoUpgradeInterval, function(v)
+	Config.AutoUpgradeInterval = math.max(1, tonumber(v) or 30)
+end)
+createInput("Webhook URL", Config.WebhookUrl, function(v)
+	Config.WebhookUrl = tostring(v or "")
+end)
+createInput("Webhook Interval", Config.WebhookInterval, function(v)
+	Config.WebhookInterval = math.max(1, tonumber(v) or 30)
+end)
+
+local dragging = false
+local dragStart, startPos
+titleBar.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = true
+		dragStart = input.Position
+		startPos = main.Position
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				dragging = false
 			end
 		end)
 	end
 end)
 
--- Auto Index
-local AutoIndex = Tabs.Main:AddToggle("AutoIndex", { Title = "Auto Index", Default = false })
-AutoIndex:OnChanged(function()
-	Notify("Auto Index", tostring(Options.AutoIndex.Value))
-	task.spawn(function()
-		while Options.AutoIndex.Value do
-			task.wait(30)
-			if Options.AutoIndex.Value then ClaimIndex() end
-		end
-	end)
+UserInputService.InputChanged:Connect(function(input)
+	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local delta = input.Position - dragStart
+		main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+	end
 end)
 
--- Auto Farm (optimized)
-local autoFarmConnection
-local AutoFarm = Tabs.Main:AddToggle("AutoFarm", { Title = "Auto Farm", Default = false })
-AutoFarm:OnChanged(function()
-	Notify("Auto Farm", tostring(Options.AutoFarm.Value))
-	if autoFarmConnection then autoFarmConnection:Disconnect() end
-	if not Options.AutoFarm.Value then return end
-
-	autoFarmConnection = RunService.Heartbeat:Connect(function()
-		if not Options.AutoFarm.Value or not clientHRP then return end
-		local lootFolder = workspace:FindFirstChild("Loot")
-		if not lootFolder then return end
-
-		for _, drop in ipairs(lootFolder:GetChildren()) do
-			if not Options.AutoFarm.Value then break end
-			for _, child in ipairs(drop:GetChildren()) do
-				if child:IsA("BasePart") and child.Name ~= "LootHighlight" then
-					child.CFrame = clientHRP.CFrame
-				end
-			end
-		end
-	end)
-end)
-
--- Auto Potions
-local AutoPotions = Tabs.Main:AddToggle("AutoPotions", { Title = "Auto Potions", Default = false })
-AutoPotions:OnChanged(function()
-	Notify("Auto Potions", tostring(Options.AutoPotions.Value))
-	task.spawn(function()
-		while Options.AutoPotions.Value do
-			ConsumePotions()
-			task.wait(3)
-		end
-	end)
-end)
-
--- Auto Best Zone
-local AutoTeleportBestZone = Tabs.Main:AddToggle("AutoTeleportBestZone", { Title = "Auto Best Zone", Default = false })
-AutoTeleportBestZone:OnChanged(function()
-	Notify("Auto Best Zone", tostring(Options.AutoTeleportBestZone.Value))
-	task.spawn(function()
-		while Options.AutoTeleportBestZone.Value do
-			TeleportBestZone()
-			task.wait(tonumber(Options.AutoBestZoneInterval.Value) or 30)
-		end
-	end)
-end)
-
-Tabs.Main:AddInput("AutoBestZoneInterval", {
-	Title = "Auto Best Zone Interval",
-	Default = "30",
-	Placeholder = "10",
-	Numeric = true,
-	Finished = false,
-	Callback = function() end
-})
-
--- Upgrades Tab
-local AutoUpgrade = Tabs.Upgrades:AddToggle("AutoUpgrade", { Title = "Auto Upgrade", Default = false })
-AutoUpgrade:OnChanged(function()
-	Notify("Auto Upgrade", tostring(Options.AutoUpgrade.Value))
-	task.spawn(function()
-		while Options.AutoUpgrade.Value do
-			Upgrade()
-			task.wait(tonumber(Options.AutoUpgradeInterval.Value) or 30)
-		end
-	end)
-end)
-
-Tabs.Upgrades:AddInput("AutoUpgradeInterval", {
-	Title = "Auto Upgrade Interval",
-	Default = "30",
-	Placeholder = "10",
-	Numeric = true,
-	Finished = false,
-	Callback = function() end
-})
-
-local AutoBuyZone = Tabs.Upgrades:AddToggle("AutoBuyZone", { Title = "Auto Buy Zone", Default = false })
-AutoBuyZone:OnChanged(function()
-	Notify("Auto Buy Zone", tostring(Options.AutoBuyZone.Value))
-	task.spawn(function()
-		while Options.AutoBuyZone.Value do
-			callRemote("ZonesService", "requestPurchaseZone")
-			task.wait(5)
-		end
-	end)
-end)
-
-local AutoRebirth = Tabs.Upgrades:AddToggle("AutoRebirth", { Title = "Auto Rebirth", Default = false })
-AutoRebirth:OnChanged(function()
-	Notify("Auto Rebirth", tostring(Options.AutoRebirth.Value))
-	task.spawn(function()
-		while Options.AutoRebirth.Value do
-			Notify("Rebirth", "Rebirthing...")
-			callRemote("RebirthService", "requestRebirth")
-			task.wait(5)
-		end
-	end)
-end)
-
-local AutoEquipBest = Tabs.Upgrades:AddToggle("AutoEquipBest", { Title = "Auto Equip Best", Default = false })
-AutoEquipBest:OnChanged(function()
-	Notify("Auto Equip Best", tostring(Options.AutoEquipBest.Value))
-	task.spawn(function()
-		while Options.AutoEquipBest.Value do
-			callRemote("InventoryService", "requestEquipBest")
-			task.wait(10)
-			Notify("Equipped Best", "Equipped best pets.")
-		end
-	end)
-end)
-
--- Webhooks Tab
-Tabs.Webhooks:AddInput("WebhookUrl", {
-	Title = "Webhook URL",
-	Default = "",
-	Placeholder = "https://discord.com/api/webhooks/...",
-	Numeric = false,
-	Finished = false,
-	Callback = function() end
-})
-
-local webhookConnection
-local Webhook = Tabs.Webhooks:AddToggle("Webhook", { Title = "Webhook", Default = false })
-Webhook:OnChanged(function()
-	Notify("Webhook", tostring(Options.Webhook.Value))
-	if webhookConnection then webhookConnection:Disconnect() end
-	if not Options.Webhook.Value then return end
-
-	webhookConnection = task.spawn(function()
-		while Options.Webhook.Value do
-			local url = Options.WebhookUrl.Value
-			if isValidWebhook(url) and clientHRP then
-				local titleGui = safeFind(client, "Head", "TitleGui") or safeFind(clientHRP, "TitleGui")
-				local numRolls = titleGui and titleGui:FindFirstChild("NumRolls") and titleGui.NumRolls.Text or "N/A"
-				SendDiscordWebhook(url, {
-					title = localPlayer.Name,
-					description = numRolls
-				})
-			end
-			task.wait(tonumber(Options.WebhookInterval.Value) or 30)
-		end
-	end)
-end)
-
-Tabs.Webhooks:AddInput("WebhookInterval", {
-	Title = "Webhook Interval",
-	Default = "30",
-	Placeholder = "10",
-	Numeric = true,
-	Finished = false,
-	Callback = function() end
-})
-
--- ==================== SAVE ====================
-
-SaveManager:SetLibrary(Fluent)
-InterfaceManager:SetLibrary(Fluent)
-SaveManager:IgnoreThemeSettings()
-SaveManager:SetIgnoreIndexes({})
-InterfaceManager:SetFolder("Plink")
-SaveManager:SetFolder("Plink/SRNG")
-
-InterfaceManager:BuildInterfaceSection(Tabs.Settings)
-SaveManager:BuildConfigSection(Tabs.Settings)
-
-Window:SelectTab(1)
-Fluent:Notify({ Title = "Fluent", Content = "Script loaded successfully.", Duration = 8 })
-SaveManager:LoadAutoloadConfig()
+Notify("AbramSliem", "Loaded successfully.")
