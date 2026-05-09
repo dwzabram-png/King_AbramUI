@@ -47,17 +47,48 @@ local Config = {
 	WebhookInterval = 30
 }
 
--- Надежный поиск ремутов (если игра обновится, нужно проверить путь в Explorer)
-local RemotesFolder = ReplicatedStorage:WaitForChild("Packages", 10):WaitForChild("_Index", 10):FindFirstChildOfClass("Folder"):WaitForChild("networker", 10):WaitForChild("_remotes", 10)
+-- Безопасный поиск _remotes (перебор папок, не зависит от порядка и имени библиотеки)
+local RemotesFolder = nil
+pcall(function()
+	local packages = ReplicatedStorage:WaitForChild("Packages", 10)
+	local index = packages:WaitForChild("_Index", 10)
+	for _, folder in ipairs(index:GetChildren()) do
+		if folder:IsA("Folder") then
+			local nw = folder:FindFirstChild("networker")
+			if nw then
+				local remotes = nw:FindFirstChild("_remotes")
+				if remotes then
+					RemotesFolder = remotes
+					break
+				end
+			end
+		end
+	end
+end)
 
 local function callRemote(service, method, ...)
-	if not RemotesFolder then error("RemotesFolder not found") end
+	if not RemotesFolder then
+		Notify("Remote Error", "RemotesFolder not found")
+		return false
+	end
 	local remote = RemotesFolder:FindFirstChild(service)
-	if not remote then error("Service " .. service .. " not found") end
+	if not remote then
+		Notify("Remote Error", "Service " .. service .. " not found")
+		return false
+	end
 	local func = remote:FindFirstChild("RemoteFunction")
-	if not func then error("RemoteFunction not found in " .. service) end
-	
-	return func:InvokeServer(method, ...)
+	if not func then
+		Notify("Remote Error", "RemoteFunction not found in " .. service)
+		return false
+	end
+	local ok, result = pcall(function()
+		return func:InvokeServer(method, ...)
+	end)
+	if not ok then
+		Notify("Remote Error", tostring(result))
+		return false
+	end
+	return true, result
 end
 
 -- Notifications
