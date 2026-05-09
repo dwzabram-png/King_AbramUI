@@ -1,4 +1,4 @@
-repeat task.wait() until game:IsLoaded()
+if not game:IsLoaded() then game.Loaded:Wait() end
 
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
@@ -942,7 +942,7 @@ createActionButton(pageWebhook, "Send test message", function()
 end)
 
 setActiveTab("Main")
-_G.RefreshFooterUI()
+if _G.RefreshFooterUI then _G.RefreshFooterUI() end
 
 -- ===== DRAG & ALT HIDE LOGIC =====
 
@@ -1025,7 +1025,7 @@ end)
 task.spawn(function()
 	while screenGui.Parent do
 		task.wait(2)
-		_G.RefreshFooterUI()
+		if _G.RefreshFooterUI then _G.RefreshFooterUI() end
 	end
 end)
 
