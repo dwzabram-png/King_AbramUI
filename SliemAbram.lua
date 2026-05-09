@@ -208,13 +208,65 @@ end
 
 local function AutoKill()
 	if not State.AutoKill or not clientHRP then return end
-	local enemiesFolder = workspace:FindFirstChild("Gameplay73") and workspace.Gameplay73:FindFirstChild("Enemies")
+	
+	-- Динамический поиск папки Gameplay (т.к. номер меняется, например Gameplay303)
+	local gameplay = nil
+	for _, child in ipairs(workspace:GetChildren()) do
+		if child.Name:match("^Gameplay") then
+			gameplay = child
+			break
+		end
+	end
+	
+	if not gameplay then return end
+	
+	local enemiesFolder = gameplay:FindFirstChild("Enemies")
 	if not enemiesFolder then return end
 
-	for _, enemy in ipairs(enemiesFolder:GetChildren()) do
-		if enemy:FindFirstChild("HumanoidRootPart") and enemy:FindFirstChild("Humanoid") and enemy.Humanoid.Health > 0 then
-			clientHRP.CFrame = enemy.HumanoidRootPart.CFrame
-			task.wait(0.2)
+	local enemies = enemiesFolder:GetChildren()
+	if #enemies == 0 then return end
+
+	for _, enemy in ipairs(enemies) do
+		if not State.AutoKill then break end
+		
+		-- Ищем RootPart (как в твоём примере) или стандартный HumanoidRootPart
+		local root = enemy:FindFirstChild("RootPart") or enemy:FindFirstChild("HumanoidRootPart")
+		local hum = enemy:FindFirstChild("Humanoid")
+		
+		-- Если RootPart оказался папкой/моделью, ищем в ней деталь Root
+		if root and not root:IsA("BasePart") then
+			root = root:FindFirstChild("Root") or root:FindFirstChild("HumanoidRootPart")
+		end
+		
+		if root and root:IsA("BasePart") and hum and hum.Health > 0 then
+			clientHRP.CFrame = root.CFrame
+			task.wait(0.1)
+			break -- Переходим к следующему циклу поиска, чтобы обновить список целей
+		end
+	end
+end
+	
+	local enemiesFolder = gameplay:FindFirstChild("Enemies")
+	if not enemiesFolder then 
+		Notify("AutoKill Error", "Папка Enemies не найдена в Gameplay73")
+		return 
+	end
+
+	local enemies = enemiesFolder:GetChildren()
+	if #enemies == 0 then
+		-- Чтобы не спамить уведомлениями, можно добавить таймер, но для теста оставим так
+		return 
+	end
+
+	for _, enemy in ipairs(enemies) do
+		if not State.AutoKill then break end
+		local hrp = enemy:FindFirstChild("HumanoidRootPart")
+		local hum = enemy:FindFirstChild("Humanoid")
+		
+		if hrp and hum and hum.Health > 0 then
+			clientHRP.CFrame = hrp.CFrame
+			task.wait(0.1) -- Короткая задержка для регистрации урона
+			break -- Убиваем одного и выходим, чтобы loop из FEATURES начал поиск заново
 		end
 	end
 end
