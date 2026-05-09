@@ -33,6 +33,7 @@ local State = {
 	AutoFarm = false,
 	AutoPotions = false,
 	AutoTeleportBestZone = false,
+	AutoKill = false,
 	AutoUpgrade = false,
 	AutoBuyZone = false,
 	AutoRebirth = false,
@@ -40,7 +41,7 @@ local State = {
 	Webhook = false
 }
 local Config = {
-	AutoBestZoneInterval = 30,
+	AutoBestZoneInterval = 15,
 	AutoUpgradeInterval = 30,
 	WebhookUrl = "",
 	WebhookInterval = 30
@@ -78,6 +79,42 @@ end
 local function TP(x, y, z)
 	if not clientHRP then return end
 	clientHRP.CFrame = CFrame.new(x, y, z)
+end
+
+-- Helpers
+local function getGameplayFolder()
+	for _, child in ipairs(workspace:GetChildren()) do
+		if child.Name:match("^Gameplay%d+$") then
+			return child
+		end
+	end
+	return nil
+end
+
+local function Kill()
+	if not clientHRP then return end
+	local gameplay = getGameplayFolder()
+	local enemies = gameplay and gameplay:FindFirstChild("Enemies")
+	if not enemies then return end
+	
+	local target = nil
+	local minDist = math.huge
+	
+	for _, enemy in ipairs(enemies:GetChildren()) do
+		local hrp = enemy:FindFirstChild("HumanoidRootPart") or enemy:FindFirstChild("PrimaryPart")
+		if hrp then
+			local dist = (clientHRP.Position - hrp.Position).Magnitude
+			if dist < minDist then
+				minDist = dist
+				target = hrp
+			end
+		end
+	end
+	
+	if target then
+		-- Teleport to enemy
+		clientHRP.CFrame = target.CFrame * CFrame.new(0, 0, 2)
+	end
 end
 
 -- Discord webhook with validation
@@ -202,7 +239,9 @@ local function TeleportBestZone()
 			if num and num > best then best = num end
 		end
 	end
-	Teleport(best + 1)
+	if best > 0 then
+		Teleport(best)
+	end
 end
 
 -- ==================== FEATURE CONFIGURATION ====================
@@ -243,6 +282,11 @@ local FEATURES = {
 		kind = "task_loop",
 		getInterval = function() return Config.AutoBestZoneInterval end,
 		action = function() TeleportBestZone() end
+	},
+	AutoKill = {
+		kind = "task_loop",
+		getInterval = function() return 0.1 end,
+		action = function() Kill() end
 	},
 	AutoUpgrade = {
 		kind = "task_loop",
@@ -832,6 +876,7 @@ createToggle(pageMain, "Auto Roll",      "AutoRoll")
 createToggle(pageMain, "Auto Index",     "AutoIndex")
 createToggle(pageMain, "Auto Farm",      "AutoFarm")
 createToggle(pageMain, "Auto Potions",   "AutoPotions")
+createToggle(pageMain, "Auto Kill",      "AutoKill")
 createToggle(pageMain, "Auto Best Zone", "AutoTeleportBestZone")
 createSection(pageMain, "Settings")
 createInput(pageMain, "Zone interval (s)", Config.AutoBestZoneInterval, function(v)
