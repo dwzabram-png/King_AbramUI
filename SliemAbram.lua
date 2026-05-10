@@ -60,7 +60,9 @@ local State = {
 	AutoRebirth = false,
 	AutoEquipBest = false,
 	AutoFeed = false,
-	Webhook = false
+	Webhook = false,
+	FPSBoost = false,
+	LowEndMode = false,
 }
 local DEFAULT_CONFIG = {
 	AutoBestZoneInterval = 15,
@@ -235,6 +237,127 @@ local function getGameplayFolder()
 		end
 	end
 	return nil
+end
+
+-- ===== FPS BOOST / LOW-END MODE =====
+local Lighting = game:GetService("Lighting")
+local POSTFX_CLASSES = { "BloomEffect", "BlurEffect", "ColorCorrectionEffect", "DepthOfFieldEffect", "SunRaysEffect" }
+local EFFECT_CLASSES = { "ParticleEmitter", "Beam", "Trail", "Smoke", "Fire", "Sparkles" }
+
+local function isAnyClass(inst, classes)
+	for _, cls in ipairs(classes) do
+		if inst:IsA(cls) then return true end
+	end
+	return false
+end
+
+local FpsState = { applied = false, conn = nil, original = {} }
+
+local function applyFpsBoostInstance(inst)
+	if inst:IsA("BasePart") then
+		pcall(function()
+			inst.Material = Enum.Material.Plastic
+			inst.Reflectance = 0
+			inst.CastShadow = false
+		end)
+	elseif isAnyClass(inst, EFFECT_CLASSES) then
+		pcall(function() inst.Enabled = false end)
+	elseif inst:IsA("Explosion") then
+		pcall(function() inst.BlastRadius = 0; inst.Visible = false end)
+	end
+end
+
+local function applyFpsBoost()
+	if FpsState.applied then return end
+	FpsState.applied = true
+
+	pcall(function()
+		FpsState.original.GlobalShadows = Lighting.GlobalShadows
+		FpsState.original.FogEnd       = Lighting.FogEnd
+		Lighting.GlobalShadows = false
+		Lighting.FogEnd = 1e9
+	end)
+	pcall(function()
+		local t = workspace.Terrain
+		FpsState.original.Decoration         = t.Decoration
+		FpsState.original.WaterWaveSize      = t.WaterWaveSize
+		FpsState.original.WaterWaveSpeed     = t.WaterWaveSpeed
+		FpsState.original.WaterReflectance   = t.WaterReflectance
+		t.Decoration       = false
+		t.WaterWaveSize    = 0
+		t.WaterWaveSpeed   = 0
+		t.WaterReflectance = 0
+	end)
+
+	for _, v in ipairs(workspace:GetDescendants()) do
+		applyFpsBoostInstance(v)
+	end
+	FpsState.conn = workspace.DescendantAdded:Connect(applyFpsBoostInstance)
+end
+
+local function disableFpsBoost()
+	if not FpsState.applied then return end
+	FpsState.applied = false
+	if FpsState.conn then pcall(function() FpsState.conn:Disconnect() end); FpsState.conn = nil end
+
+	pcall(function()
+		if FpsState.original.GlobalShadows ~= nil then Lighting.GlobalShadows = FpsState.original.GlobalShadows end
+		if FpsState.original.FogEnd ~= nil then Lighting.FogEnd = FpsState.original.FogEnd end
+	end)
+	pcall(function()
+		local t = workspace.Terrain
+		if FpsState.original.Decoration ~= nil then t.Decoration = FpsState.original.Decoration end
+		if FpsState.original.WaterWaveSize ~= nil then t.WaterWaveSize = FpsState.original.WaterWaveSize end
+		if FpsState.original.WaterWaveSpeed ~= nil then t.WaterWaveSpeed = FpsState.original.WaterWaveSpeed end
+		if FpsState.original.WaterReflectance ~= nil then t.WaterReflectance = FpsState.original.WaterReflectance end
+	end)
+	FpsState.original = {}
+end
+
+local LowEndState = { applied = false, conn = nil }
+
+local function applyLowEndInstance(inst)
+	applyFpsBoostInstance(inst)
+	if inst:IsA("Decal") or inst:IsA("Texture") or inst:IsA("SurfaceAppearance") then
+		pcall(function() inst:Destroy() end)
+	elseif isAnyClass(inst, POSTFX_CLASSES) then
+		pcall(function() inst.Enabled = false end)
+	end
+end
+
+local function applyLowEndMode()
+	if LowEndState.applied then return end
+	LowEndState.applied = true
+
+	applyFpsBoost()
+
+	for _, fx in ipairs(Lighting:GetChildren()) do
+		if isAnyClass(fx, POSTFX_CLASSES) then
+			pcall(function() fx.Enabled = false end)
+		end
+	end
+
+	pcall(function()
+		if type(sethiddenproperty) == "function" then
+			sethiddenproperty(settings().Rendering, "QualityLevel", 1)
+		else
+			settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+		end
+	end)
+
+	for _, v in ipairs(game:GetDescendants()) do
+		applyLowEndInstance(v)
+	end
+	LowEndState.conn = game.DescendantAdded:Connect(applyLowEndInstance)
+
+	Notify("Low-End", "Textures/decals removed — rejoin to restore visuals")
+end
+
+local function disableLowEndMode()
+	if not LowEndState.applied then return end
+	LowEndState.applied = false
+	if LowEndState.conn then pcall(function() LowEndState.conn:Disconnect() end); LowEndState.conn = nil end
+	-- Обратно включить PostFX/QualityLevel надёжно нельзя — нужен реджойн.
 end
 
 local function toggleNoclip(value)
@@ -679,20 +802,35 @@ local FEATURES = {
 				})
 			end
 		end
-	}
+	},
+	FPSBoost = {
+		kind = "custom",
+		onStart = applyFpsBoost,
+		onStop  = disableFpsBoost,
+	},
+	LowEndMode = {
+		kind = "custom",
+		onStart = applyLowEndMode,
+		onStop  = disableLowEndMode,
+	},
 }
 
 -- ==================== FEATURE MANAGEMENT ====================
 local function stopFeature(name)
+	local cfg = FEATURES[name]
 	local handle = activeFeatures[name]
-	if not handle then return end
-	if typeof(handle) == "thread" then
-		pcall(task.cancel, handle)
-	elseif typeof(handle) == "RBXScriptConnection" then
-		pcall(handle.Disconnect, handle)
+	if handle then
+		if typeof(handle) == "thread" then
+			pcall(task.cancel, handle)
+		elseif typeof(handle) == "RBXScriptConnection" then
+			pcall(handle.Disconnect, handle)
+		end
 	end
 	activeFeatures[name] = nil
-	
+
+	if cfg and cfg.kind == "custom" and cfg.onStop then
+		pcall(cfg.onStop)
+	end
 	if name == "AutoKill" then toggleNoclip(false) end
 end
 
@@ -721,6 +859,9 @@ local function startFeature(name)
 		local signal = cfg.getSignal()
 		if not signal then return end
 		activeFeatures[name] = signal:Connect(cfg.callback)
+	elseif cfg.kind == "custom" then
+		if cfg.onStart then pcall(cfg.onStart) end
+		activeFeatures[name] = true
 	end
 end
 
@@ -1330,6 +1471,9 @@ createToggle(pageMain, "Auto Farm",      "AutoFarm")
 createToggle(pageMain, "Auto Potions",   "AutoPotions")
 createToggle(pageMain, "Auto Kill",      "AutoKill")
 createToggle(pageMain, "Auto Best Zone", "AutoTeleportBestZone")
+createSection(pageMain, "Performance")
+createToggle(pageMain, "FPS Boost",      "FPSBoost")
+createToggle(pageMain, "Ultra Low-End",  "LowEndMode")
 createSection(pageMain, "Settings")
 createInput(pageMain, "Zone interval (s)", Config.AutoBestZoneInterval, function(v)
 	Config.AutoBestZoneInterval = math.max(1, tonumber(v) or 30)

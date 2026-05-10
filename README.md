@@ -17,6 +17,10 @@
 - **Auto Kill** — телепорт-фарм ближайшего врага с лёгким джиттером.
 - **Auto Best Zone** — телепортирует в следующую (ещё не открытую) зону, чтобы быстрее её разблокировать.
 
+### Performance (вкладка **Main**)
+- **FPS Boost** — отключает глобальные тени, туман, декорации/волны террейна; у всех `BasePart` ставит материал `Plastic`, `Reflectance = 0`, `CastShadow = false`; глушит частицы, огонь, дым, искры, трейлы и beam'ы. Применяется к существующим объектам и автоматически к новым (`workspace.DescendantAdded`). При выключении восстанавливает оригинальное освещение/террейн.
+- **Ultra Low-End** — всё что FPS Boost + удаляет все `Decal` / `Texture` / `SurfaceAppearance`, отключает все PostFX (`Bloom`, `Blur`, `DepthOfField`, `SunRays`, `ColorCorrection`) и понижает `Rendering.QualityLevel` до минимума через `sethiddenproperty` (если executor поддерживает). **Внимание:** удалённые декали/текстуры восстанавливаются только перезаходом в игру.
+
 ### Progression (вкладка **Upgrades**)
 - **MEGA Auto Upgrade** — закупает все апгрейды из захардкоженного списка. Купленные ID кэшируются и больше не дёргаются.
 - **Auto Buy Zone** — `ZonesService.requestPurchaseZone`.
