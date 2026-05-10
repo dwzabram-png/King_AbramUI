@@ -1227,19 +1227,30 @@ _G.RefreshFooterUI()
 -- ===== DRAG & ALT HIDE LOGIC =====
 
 local draggingMain = false
+local dragPending = false
 local dragStartM, startPosM
-
-main.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-		draggingMain = true
-		dragStartM = input.Position
-		startPosM = main.Position
-	end
-end)
+local MAIN_DRAG_THRESHOLD = 10
 
 local pillDrag = false
 local pDragStart, pStartPos, pMoved
 local DRAG_THRESHOLD = 15
+
+local function isInsideGui(pos, guiObj)
+	local ap = guiObj.AbsolutePosition
+	local as = guiObj.AbsoluteSize
+	return pos.X >= ap.X and pos.X <= ap.X + as.X and pos.Y >= ap.Y and pos.Y <= ap.Y + as.Y
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		if main.Visible and isInsideGui(input.Position, main) then
+			dragPending = true
+			draggingMain = false
+			dragStartM = input.Position
+			startPosM = main.Position
+		end
+	end
+end)
 
 pill.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -1252,6 +1263,13 @@ end)
 
 UserInputService.InputChanged:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+		if dragPending and not draggingMain then
+			local d = input.Position - dragStartM
+			if d.Magnitude > MAIN_DRAG_THRESHOLD then
+				draggingMain = true
+				dragPending = false
+			end
+		end
 		if draggingMain then
 			local d = input.Position - dragStartM
 			main.Position = UDim2.new(startPosM.X.Scale, startPosM.X.Offset + d.X, startPosM.Y.Scale, startPosM.Y.Offset + d.Y)
@@ -1266,6 +1284,7 @@ end)
 UserInputService.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		draggingMain = false
+		dragPending = false
 		pillDrag = false
 	end
 end)
