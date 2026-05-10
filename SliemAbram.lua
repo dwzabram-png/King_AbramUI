@@ -336,97 +336,163 @@ end
 -- [AUTO FEED] Кормит слаймов фруктами поровну
 local FOOD_TYPES = {"apple", "grapes", "banana", "pizza", "drumstick", "chicken", "watermelon", "cherries", "carrot"}
 
-local function FeedSlimes()
-	-- task.defer чтобы выйти из Vide reactive scope
-	task.defer(function()
-		print("[Feed] defer started")
+-- Получение UUID экипированных слаймов через DataService
+local function getEquippedSlimeUUIDs()
+	-- DataService хранит equipped как массив UUID (индексы 1-8)
+	-- Источник: ReplicatedStorage.Source.Features.Inventory.UI.Components.EquippedSlimesFrame
+	-- getDataSource("equipped") -> массив uniqueId для каждого слота
 
-		-- 1. Ищем UUID в EquippedSlimesFrame — полный дамп
-		local ok1, equippedFrame = pcall(function()
-			return localPlayer.PlayerGui.Root.Inventory.PageInventoryContent.SlimesPage.EquippedSlimesFrame
-		end)
-		if not ok1 or not equippedFrame then
-			print("[Feed] EquippedSlimesFrame not found")
+	-- Метод 1: require DataService напрямую
+	local ok1, uuids1 = pcall(function()
+		local DataService = require(ReplicatedStorage.Packages.DataService)
+		local c = DataService.client
+		local equipped = c:get({"equipped"})
+		if not equipped or type(equipped) ~= "table" then return nil end
+		local result = {}
+		for i = 1, 8 do
+			local val = equipped[i]
+			if val and type(val) == "string" and val ~= "" then
+				table.insert(result, val)
+			end
+		end
+		return result
+	end)
+	if ok1 and uuids1 and #uuids1 > 0 then
+		print("[Feed] Got " .. #uuids1 .. " UUIDs via DataService:get")
+		return uuids1
+	end
+
+	-- Метод 2: getDataSource("equipped") из Vide-обёртки
+	local ok2, uuids2 = pcall(function()
+		local getDataSource = require(ReplicatedStorage.Source.Core.UI.Sources.getDataSource)
+		local equippedSource = getDataSource("equipped")
+		local equipped = equippedSource()
+		if not equipped or type(equipped) ~= "table" then return nil end
+		local result = {}
+		for i = 1, 8 do
+			local val = equipped[i]
+			if val and type(val) == "string" and val ~= "" then
+				table.insert(result, val)
+			end
+		end
+		return result
+	end)
+	if ok2 and uuids2 and #uuids2 > 0 then
+		print("[Feed] Got " .. #uuids2 .. " UUIDs via getDataSource")
+		return uuids2
+	end
+
+	-- Метод 3: getValue вместо get (альтернативный API)
+	local ok3, uuids3 = pcall(function()
+		local DataService = require(ReplicatedStorage.Packages.DataService)
+		local c = DataService.client
+		local equipped = c:getValue({"equipped"})
+		if not equipped or type(equipped) ~= "table" then return nil end
+		local result = {}
+		for i = 1, 8 do
+			local val = equipped[i]
+			if val and type(val) == "string" and val ~= "" then
+				table.insert(result, val)
+			end
+		end
+		return result
+	end)
+	if ok3 and uuids3 and #uuids3 > 0 then
+		print("[Feed] Got " .. #uuids3 .. " UUIDs via DataService:getValue")
+		return uuids3
+	end
+
+	print("[Feed] All UUID methods failed")
+	return {}
+end
+
+-- Получение количества еды через DataService (loot)
+local function getLootCounts()
+	local ok, loot = pcall(function()
+		local DataService = require(ReplicatedStorage.Packages.DataService)
+		local c = DataService.client
+		local data = c:get({"loot"})
+		if not data then
+			data = c:get({"items"})
+		end
+		return data
+	end)
+	if ok and loot and type(loot) == "table" then
+		return loot
+	end
+	return nil
+end
+
+local function FeedSlimes()
+	task.defer(function()
+		print("[Feed] started")
+
+		-- 1. Получаем UUID экипированных слаймов
+		local equippedUUIDs = getEquippedSlimeUUIDs()
+		if #equippedUUIDs == 0 then
+			Notify("Feed", "No equipped slimes found")
+			print("[Feed] No equipped slimes")
 			return
 		end
-
-		-- Дамп ВСЕХ потомков (любой класс)
-		print("[Feed] === FULL DUMP EquippedSlimesFrame ===")
-		for _, obj in ipairs(equippedFrame:GetDescendants()) do
-			local attrs = ""
-			pcall(function()
-				local a = obj:GetAttributes()
-				for k, v in pairs(a) do
-					attrs = attrs .. " @" .. k .. "=" .. tostring(v)
-				end
-			end)
-			print("[Feed] " .. obj.Name .. " [" .. obj.ClassName .. "]" .. attrs)
-		end
-		print("[Feed] === END DUMP ===")
-
-		-- Собираем UUID: ищем InventorySlime_ паттерн + извлекаем UUID
-		local equippedUUIDs = {}
-		local seen = {}
-		for _, obj in ipairs(equippedFrame:GetDescendants()) do
-			local name = obj.Name
-			-- Паттерн InventorySlime_.uuid
-			local uuid = name:match("InventorySlime_(%.[%x%-]+)")
-			if uuid and not seen[uuid] then
-				seen[uuid] = true
-				table.insert(equippedUUIDs, uuid)
-				print("[Feed] Found equipped UUID: " .. uuid)
-			end
-			-- Прямой UUID (начинается с точки)
-			if not uuid and name:sub(1, 1) == "." and #name > 20 and not seen[name] then
-				seen[name] = true
-				table.insert(equippedUUIDs, name)
-				print("[Feed] Found equipped UUID (direct): " .. name)
-			end
+		print("[Feed] Equipped: " .. #equippedUUIDs .. " slimes")
+		for i, uuid in ipairs(equippedUUIDs) do
+			print("[Feed]   [" .. i .. "] " .. uuid)
 		end
 
-		print("[Feed] Equipped UUIDs: " .. #equippedUUIDs)
-		if #equippedUUIDs == 0 then return end
-
-		-- 2. Находим список еды
-		local ok2, consumablesList = pcall(function()
-			return localPlayer.PlayerGui.Root.Inventory.PageItemsContent.ItemsInventoryPage.DefaultItemsView.ConsumablesPanel.ConsumablesList
-		end)
-		if not ok2 then print("[Feed] ConsumablesList error: " .. tostring(consumablesList)) return end
-		if not consumablesList then print("[Feed] ConsumablesList is nil") return end
-		print("[Feed] ConsumablesList found")
+		-- 2. Пробуем получить количество еды из DataService
+		local loot = getLootCounts()
 
 		-- 3. Раздаём еду
-		for _, foodName in pairs(FOOD_TYPES) do
-			local itemButton = consumablesList:FindFirstChild(foodName .. "ItemButton")
-			if itemButton and itemButton:FindFirstChild("Amount") then
-				local amountObj = itemButton.Amount
-				local amountText = ""
+		local fedCount = 0
+		for _, foodName in ipairs(FOOD_TYPES) do
+			local totalFood = 0
 
-				if amountObj:IsA("TextLabel") then
-					amountText = amountObj.Text
-				else
-					local label = amountObj:FindFirstChildWhichIsA("TextLabel")
-					if label then amountText = label.Text end
-				end
+			-- Из DataService
+			if loot then
+				totalFood = tonumber(loot[foodName]) or 0
+			end
 
-				amountText = amountText:gsub("x", ""):gsub(" ", "")
-				local totalFood = tonumber(amountText) or 0
-
-				if totalFood > 0 then
-					local perSlime = math.floor(totalFood / #equippedUUIDs)
-					print("[Feed] " .. foodName .. ": " .. totalFood .. " total, " .. perSlime .. " per slime")
-					if perSlime > 0 then
-						for _, slimeUUID in pairs(equippedUUIDs) do
-							task.spawn(function()
-								local ok, res = callRemote("InventoryService", "requestUseFood", foodName, slimeUUID, perSlime)
-								print("[Feed] " .. foodName .. " -> " .. slimeUUID .. " ok=" .. tostring(ok))
-							end)
+			-- Фоллбэк: из UI
+			if totalFood <= 0 then
+				pcall(function()
+					local consumablesList = localPlayer.PlayerGui.Root.Inventory.PageItemsContent
+						.ItemsInventoryPage.DefaultItemsView.ConsumablesPanel.ConsumablesList
+					local itemButton = consumablesList:FindFirstChild(foodName .. "ItemButton")
+					if itemButton then
+						local amountObj = itemButton:FindFirstChild("Amount")
+						if amountObj then
+							local amountText = ""
+							if amountObj:IsA("TextLabel") then
+								amountText = amountObj.Text
+							else
+								local label = amountObj:FindFirstChildWhichIsA("TextLabel")
+								if label then amountText = label.Text end
+							end
+							amountText = amountText:gsub("[^%d]", "")
+							totalFood = tonumber(amountText) or 0
 						end
 					end
+				end)
+			end
+
+			if totalFood > 0 then
+				local perSlime = math.max(1, math.floor(totalFood / #equippedUUIDs))
+				print("[Feed] " .. foodName .. ": " .. totalFood .. " -> " .. perSlime .. "/slime")
+				for _, slimeUUID in ipairs(equippedUUIDs) do
+					local ok, res = callRemote("InventoryService", "requestUseFood", foodName, slimeUUID, perSlime)
+					if ok then
+						fedCount = fedCount + 1
+					end
+					print("[Feed] " .. foodName .. " -> " .. slimeUUID .. " ok=" .. tostring(ok))
+					task.wait(0.05)
 				end
 			end
 		end
-		print("[Feed] done")
+
+		if fedCount > 0 then
+			Notify("Feed", "Fed " .. fedCount .. " food items")
+		end
+		print("[Feed] done, fed " .. fedCount)
 	end)
 end
 
