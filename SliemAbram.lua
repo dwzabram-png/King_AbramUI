@@ -718,8 +718,8 @@ local screenSize = camera and camera.ViewportSize or Vector2.new(1920, 1080)
 local BASE_W, BASE_H = 360, 480
 if isMobile then
 	local sw, sh = screenSize.X, screenSize.Y
-	local maxW = math.floor(sw * 0.95)
-	local maxH = math.floor(sh * 0.78)
+	local maxW = math.floor(sw * 0.70)
+	local maxH = math.floor(sh * 0.85)
 	BASE_W = math.min(BASE_W, maxW)
 	BASE_H = math.min(BASE_H, maxH)
 end
@@ -1351,8 +1351,8 @@ if camera then
 	camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
 		local newSize = camera.ViewportSize
 		if isMobile then
-			local newW = math.min(360, math.floor(newSize.X * 0.95))
-			local newH = math.min(480, math.floor(newSize.Y * 0.78))
+			local newW = math.min(360, math.floor(newSize.X * 0.70))
+			local newH = math.min(480, math.floor(newSize.Y * 0.85))
 			if not hidden then
 				main.Size = UDim2.new(0, newW, 0, newH)
 				main.Position = UDim2.new(0.5, -newW/2, 0.5, -newH/2)
