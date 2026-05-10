@@ -134,22 +134,14 @@ local function TeleportBestZone()
 					isOpened = false
 				end
 			else
-				-- Ищем только части с 'Blocker'/'Block' в имени
-				local foundBlocker = false
+				local hasSolidPart = false
 				for _, child in ipairs(gate:GetDescendants()) do
-					if child:IsA("BasePart") and (child.Name:find("Blocker") or child.Name:find("Block")) then
-						foundBlocker = true
-						if child.CanCollide == false or child.Transparency >= 1 then
-							isOpened = true
-						else
-							isOpened = false
-						end
+					if child:IsA("BasePart") and child.CanCollide == true and child.Transparency < 1 then
+						hasSolidPart = true
 						break
 					end
 				end
-				if not foundBlocker then
-					isOpened = true
-				end
+				isOpened = not hasSolidPart
 			end
 		else
 			isOpened = true

@@ -90,41 +90,47 @@ local function TeleportBestZone()
         local isOpened = false
         
         if gate then
-            -- 1. Стандартная проверка блокировщика
+            -- Дамп содержимого Gate для дебага
+            if SETTINGS.DebugMode then
+                local parts = {}
+                for _, child in ipairs(gate:GetDescendants()) do
+                    if child:IsA("BasePart") then
+                        table.insert(parts, child.Name.."(collide="..tostring(child.CanCollide)..",transp="..string.format("%.1f", child.Transparency)..")") 
+                    end
+                end
+                Log("Zone "..zoneNum.." Gate contents: "..table.concat(parts, ", "))
+            end
+
+            -- 1. Проверяем именованный блокировщик
             local blocker = gate:FindFirstChild("ClientGateBlocker_" .. zone.Name) or gate:FindFirstChild("GateBlocker")
             if blocker then
                 if blocker.CanCollide == false or blocker.Transparency >= 1 then
                     isOpened = true
-                    Log("Zone "..zoneNum.." is opened (Blocker disabled).")
+                    Log("Zone "..zoneNum.." is OPEN (named blocker disabled).")
                 else
                     isOpened = false
-                    Log("Zone "..zoneNum.." is LOCKED (Blocker active: "..blocker.Name..").")
+                    Log("Zone "..zoneNum.." is LOCKED (named blocker active: "..blocker.Name..").")
                 end
             else
-                -- 2. Глубокая проверка — ищем ТОЛЬКО части с 'Blocker'/'Block' в имени
-                local foundBlocker = false
+                -- 2. Нет именованного блокировщика — проверяем есть ли ЛЮБАЯ твёрдая часть
+                local hasSolidPart = false
                 for _, child in ipairs(gate:GetDescendants()) do
-                    if child:IsA("BasePart") and (child.Name:find("Blocker") or child.Name:find("Block")) then
-                        foundBlocker = true
-                        if child.CanCollide == false or child.Transparency >= 1 then
-                            isOpened = true
-                            Log("Zone "..zoneNum.." is opened (Deep Scan: "..child.Name.." disabled).")
-                        else
-                            isOpened = false
-                            Log("Zone "..zoneNum.." is LOCKED (Deep Scan: "..child.Name.." active).")
-                        end
+                    if child:IsA("BasePart") and child.CanCollide == true and child.Transparency < 1 then
+                        hasSolidPart = true
+                        Log("Zone "..zoneNum.." is LOCKED (solid part: "..child.Name..").")
                         break
                     end
                 end
-                if not foundBlocker then
-                    -- Нет блокировщика = зона открыта
+                if hasSolidPart then
+                    isOpened = false
+                else
                     isOpened = true
-                    Log("Zone "..zoneNum.." has Gate but no Blocker parts, assuming opened.")
+                    Log("Zone "..zoneNum.." is OPEN (no solid parts in Gate).")
                 end
             end
         else
             isOpened = true
-            Log("Zone "..zoneNum.." has no Gate folder, assuming opened.")
+            Log("Zone "..zoneNum.." has no Gate folder, assuming opened.")  
         end
 
         if isOpened then
