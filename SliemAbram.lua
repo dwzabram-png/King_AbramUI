@@ -710,9 +710,23 @@ screenGui.Name = "AS_" .. HttpService:GenerateGUID(false):sub(1,8)
 screenGui.ResetOnSpawn = false
 screenGui.Parent = gethui and gethui() or CoreGui
 
+-- Определение платформы и адаптивный размер
+local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+local camera = workspace.CurrentCamera
+local screenSize = camera and camera.ViewportSize or Vector2.new(1920, 1080)
+
+local BASE_W, BASE_H = 360, 480
+if isMobile then
+	local sw, sh = screenSize.X, screenSize.Y
+	local maxW = math.floor(sw * 0.92)
+	local maxH = math.floor(sh * 0.75)
+	BASE_W = math.min(BASE_W, maxW)
+	BASE_H = math.min(BASE_H, maxH)
+end
+
 local main = Instance.new("Frame")
-main.Size = UDim2.new(0, 360, 0, 480)
-main.Position = UDim2.new(0.5, -180, 0.5, -240)
+main.Size = UDim2.new(0, BASE_W, 0, BASE_H)
+main.Position = UDim2.new(0.5, -BASE_W/2, 0.5, -BASE_H/2)
 main.BackgroundColor3 = C.BG
 main.BorderSizePixel = 0
 main.ClipsDescendants = false
@@ -769,6 +783,7 @@ kbdChip.Position = UDim2.new(1, -12, 0.5, 0)
 kbdChip.Size = UDim2.new(0, 78, 0, 22)
 kbdChip.BackgroundColor3 = C.BG
 kbdChip.BorderSizePixel = 0
+kbdChip.Visible = not isMobile
 kbdChip.Parent = titleBar
 addCorner(kbdChip, 4)
 addStroke(kbdChip, C.Border, 1)
@@ -1249,7 +1264,7 @@ local hidden = false
 local function toggleMenu()
 	hidden = not hidden
 	if hidden then
-		tw(main, { Size = UDim2.new(0, 340, 0, 460) }, TW_FAST)
+		tw(main, { Size = UDim2.new(0, BASE_W - 20, 0, BASE_H - 20) }, TW_FAST)
 		task.delay(0.1, function()
 			if hidden then
 				main.Visible = false
@@ -1261,8 +1276,8 @@ local function toggleMenu()
 	else
 		pill.Visible = false
 		main.Visible = true
-		main.Size = UDim2.new(0, 340, 0, 460)
-		tw(main, { Size = UDim2.new(0, 360, 0, 480) }, TW_POP)
+		main.Size = UDim2.new(0, BASE_W - 20, 0, BASE_H - 20)
+		tw(main, { Size = UDim2.new(0, BASE_W, 0, BASE_H) }, TW_POP)
 	end
 end
 
@@ -1270,12 +1285,80 @@ pill.MouseButton1Click:Connect(function()
 	if not pMoved then toggleMenu() end
 end)
 
+-- ALT toggle (ПК)
 UserInputService.InputBegan:Connect(function(input, gp)
 	if gp then return end
 	if input.KeyCode == Enum.KeyCode.LeftAlt or input.KeyCode == Enum.KeyCode.RightAlt then
 		toggleMenu()
 	end
 end)
+
+-- Мобильная кнопка toggle (вместо ALT)
+if isMobile then
+	local mobileBtn = Instance.new("TextButton")
+	mobileBtn.Size = UDim2.new(0, 44, 0, 44)
+	mobileBtn.Position = UDim2.new(1, -54, 0, 10)
+	mobileBtn.BackgroundColor3 = C.Accent
+	mobileBtn.AutoButtonColor = false
+	mobileBtn.Text = ""
+	mobileBtn.Active = true
+	mobileBtn.ZIndex = 10
+	mobileBtn.Parent = screenGui
+	addCorner(mobileBtn, 22)
+	addStroke(mobileBtn, C.BorderHi, 1)
+
+	local mobileBtnIcon = Instance.new("TextLabel")
+	mobileBtnIcon.Size = UDim2.new(1, 0, 1, 0)
+	mobileBtnIcon.BackgroundTransparency = 1
+	mobileBtnIcon.Font = Enum.Font.GothamBold
+	mobileBtnIcon.Text = "AS"
+	mobileBtnIcon.TextSize = 16
+	mobileBtnIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
+	mobileBtnIcon.ZIndex = 11
+	mobileBtnIcon.Parent = mobileBtn
+
+	mobileBtn.MouseButton1Click:Connect(function()
+		toggleMenu()
+	end)
+
+	-- Drag мобильной кнопки
+	local mbDrag, mbStart, mbStartPos = false, nil, nil
+	mobileBtn.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch then
+			mbDrag = true
+			mbStart = input.Position
+			mbStartPos = mobileBtn.Position
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input)
+		if mbDrag and input.UserInputType == Enum.UserInputType.Touch then
+			local d = input.Position - mbStart
+			mobileBtn.Position = UDim2.new(mbStartPos.X.Scale, mbStartPos.X.Offset + d.X, mbStartPos.Y.Scale, mbStartPos.Y.Offset + d.Y)
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch then
+			mbDrag = false
+		end
+	end)
+end
+
+-- Адаптация при смене разрешения (поворот экрана и т.д.)
+if camera then
+	camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+		local newSize = camera.ViewportSize
+		if isMobile then
+			local newW = math.min(360, math.floor(newSize.X * 0.92))
+			local newH = math.min(480, math.floor(newSize.Y * 0.75))
+			if not hidden then
+				main.Size = UDim2.new(0, newW, 0, newH)
+				main.Position = UDim2.new(0.5, -newW/2, 0.5, -newH/2)
+			end
+			BASE_W = newW
+			BASE_H = newH
+		end
+	end)
+end
 
 task.spawn(function()
 	while screenGui.Parent do
@@ -1284,4 +1367,8 @@ task.spawn(function()
 	end
 end)
 
-Notify("AbramSliem", "Loaded successfully. Press ALT or click AS icon.")
+if isMobile then
+	Notify("AbramSliem", "Loaded. Tap the AS button to toggle menu.")
+else
+	Notify("AbramSliem", "Loaded. Press ALT or click AS icon.")
+end
