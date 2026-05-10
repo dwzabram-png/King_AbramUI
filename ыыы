@@ -24,28 +24,95 @@ end
 -- Динамический поиск Remotes
 local function getRemotesFolder()
     local packages = ReplicatedStorage:FindFirstChild("Packages")
-    if not packages then return nil, "Packages not found" end
+    if not packages then return nil, "Packages not found in ReplicatedStorage" end
     local index = packages:FindFirstChild("_Index")
-    if not index then return nil, "_Index not found" end
+    if not index then return nil, "_Index not found in Packages" end
     
     for _, child in ipairs(index:GetChildren()) do
         if child.Name:find("networker") then
-            local remotes = child:FindFirstChild("networker") and child.networker:FindFirstChild("_remotes")
-            if remotes then return remotes end
+            local networker = child:FindFirstChild("networker")
+            if networker then
+                local remotes = networker:FindFirstChild("_remotes")
+                if remotes then return remotes end
+            end
         end
     end
     return nil, "Networker remotes folder not found"
 end
+
+-- Диагностика при запуске
+local function runDiagnostics()
+    Log("=== REMOTE DIAGNOSTICS ===")
+    
+    local packages = ReplicatedStorage:FindFirstChild("Packages")
+    if not packages then
+        Log("Packages NOT FOUND in ReplicatedStorage", true)
+        Log("ReplicatedStorage children: "..table.concat(
+            (function() local t = {} for _, c in ipairs(ReplicatedStorage:GetChildren()) do table.insert(t, c.Name.."["..c.ClassName.."]") end return t end)(), ", "))
+        return
+    end
+    Log("Packages found ✓")
+    
+    local index = packages:FindFirstChild("_Index")
+    if not index then
+        Log("_Index NOT FOUND in Packages", true)
+        Log("Packages children: "..table.concat(
+            (function() local t = {} for _, c in ipairs(packages:GetChildren()) do table.insert(t, c.Name.."["..c.ClassName.."]") end return t end)(), ", "))
+        return
+    end
+    Log("_Index found ✓")
+    
+    local indexChildren = {}
+    for _, child in ipairs(index:GetChildren()) do
+        table.insert(indexChildren, child.Name)
+    end
+    Log("_Index children: "..table.concat(indexChildren, ", "))
+    
+    local folder = getRemotesFolder()
+    if not folder then
+        Log("Remotes folder NOT FOUND", true)
+        return
+    end
+    Log("Remotes folder found ✓")
+    
+    local services = {}
+    for _, child in ipairs(folder:GetChildren()) do
+        table.insert(services, child.Name)
+    end
+    Log("Available services: "..table.concat(services, ", "))
+    
+    local zonesService = folder:FindFirstChild("ZonesService")
+    if zonesService then
+        Log("ZonesService found ✓")
+        local funcs = {}
+        for _, child in ipairs(zonesService:GetChildren()) do
+            table.insert(funcs, child.Name.."["..child.ClassName.."]")
+        end
+        Log("ZonesService contents: "..table.concat(funcs, ", "))
+    else
+        Log("ZonesService NOT FOUND in remotes!", true)
+        Log("Try one of: "..table.concat(services, ", "))
+    end
+    
+    Log("=== END DIAGNOSTICS ===")
+end
+
+runDiagnostics()
 
 local function callRemote(service, method, ...)
     local folder, err = getRemotesFolder()
     if not folder then return false, err end
     
     local remote = folder:FindFirstChild(service)
-    if not remote then return false, "Service "..service.." not found" end
+    if not remote then return false, "Service '"..service.."' not found. Available: "..table.concat(
+        (function() local t = {} for _, c in ipairs(folder:GetChildren()) do table.insert(t, c.Name) end return t end)(), ", ") end
     
     local func = remote:FindFirstChild("RemoteFunction")
-    if not func then return false, "RemoteFunction not found in "..service end
+    if not func then
+        local children = {}
+        for _, c in ipairs(remote:GetChildren()) do table.insert(children, c.Name.."["..c.ClassName.."]") end
+        return false, "RemoteFunction not found in '"..service.."'. Contents: "..table.concat(children, ", ")
+    end
     
     local ok, result = pcall(function(...)
         return func:InvokeServer(...)
@@ -56,11 +123,11 @@ end
 
 local function Teleport(zoneId)
     Log("Attempting teleport to zone: " .. tostring(zoneId))
-    local ok, err = callRemote("ZonesService", "requestTeleportZone", zoneId)
+    local ok, result = callRemote("ZonesService", "requestTeleportZone", zoneId)
     if not ok then
-        Log("Teleport Remote Failed: " .. tostring(err), true)
+        Log("Teleport FAILED: " .. tostring(result), true)
     else
-        Log("Teleport request sent successfully.")
+        Log("Teleport sent OK. Server response: "..tostring(result))
     end
 end
 
