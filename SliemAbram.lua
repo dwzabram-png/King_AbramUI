@@ -341,36 +341,21 @@ local function FeedSlimes()
 	task.defer(function()
 		print("[Feed] defer started")
 
-		-- 1. Находим фрейм с надетыми слаймами
-		local ok1, equippedFrame = pcall(function()
-			return localPlayer.PlayerGui.Root.Inventory.PageInventoryContent.SlimesPage.EquippedSlimesFrame
-		end)
-		if not ok1 then print("[Feed] EquippedSlimesFrame error: " .. tostring(equippedFrame)) return end
-		if not equippedFrame then print("[Feed] EquippedSlimesFrame is nil") return end
-		print("[Feed] EquippedSlimesFrame found")
-
-		-- Ищем слаймов в Container (UUID не прямые дети EquippedSlimesFrame)
-		local container = equippedFrame:FindFirstChild("Container")
-		local searchIn = container or equippedFrame
-
-		-- Дамп потомков для отладки
-		for _, child in ipairs(searchIn:GetDescendants()) do
-			if child:IsA("GuiObject") then
-				print("[Feed] Descendant: '" .. child.Name .. "' [" .. child.ClassName .. "] len=" .. #child.Name)
-			end
-		end
-
-		-- Собираем UUID из потомков Container
+		-- 1. Получаем UUID экипированных слаймов из data source
 		local equippedUUIDs = {}
-		local seen = {}
-		for _, child in ipairs(searchIn:GetDescendants()) do
-			if child:IsA("GuiObject") and (child.Name:sub(1, 1) == "." or #child.Name > 20) then
-				if not seen[child.Name] then
-					seen[child.Name] = true
-					table.insert(equippedUUIDs, child.Name)
+		local ok1, err1 = pcall(function()
+			local getDataSource = require(ReplicatedStorage.Source.Core.UI.Sources.getDataSource)
+			local inventory = getDataSource("inventory")()
+			if inventory and inventory.slimes then
+				for uuid, data in pairs(inventory.slimes) do
+					if data.equipped == true then
+						table.insert(equippedUUIDs, uuid)
+						print("[Feed] Found slime: " .. tostring(uuid))
+					end
 				end
 			end
-		end
+		end)
+		if not ok1 then print("[Feed] getDataSource error: " .. tostring(err1)) end
 
 		print("[Feed] Equipped UUIDs: " .. #equippedUUIDs)
 		if #equippedUUIDs == 0 then return end
