@@ -27,104 +27,77 @@ local function Log(msg, isError)
     local timestamp = os.date("%X")
     local prefix = "[AutoZone "..timestamp.."] "
     if isError then
-        warn(prefix .. "❌ ERROR: " .. tostring(msg))
+        warn(prefix .. "ERROR: " .. tostring(msg))
     elseif SETTINGS.DebugMode then
-        print(prefix .. "ℹ️ " .. tostring(msg))
+        print(prefix .. tostring(msg))
     end
 end
 
--- Динамический поиск Remotes
-local function getRemotesFolder()
+-- Динамический поиск Remotes (проверяет ВСЕ версии networker)
+local function getAllRemotesFolders()
+    local result = {}
     local packages = ReplicatedStorage:FindFirstChild("Packages")
-    if not packages then return nil, "Packages not found in ReplicatedStorage" end
+    if not packages then return result end
     local index = packages:FindFirstChild("_Index")
-    if not index then return nil, "_Index not found in Packages" end
+    if not index then return result end
     
     for _, child in ipairs(index:GetChildren()) do
         if child.Name:find("networker") then
             local networker = child:FindFirstChild("networker")
             if networker then
                 local remotes = networker:FindFirstChild("_remotes")
-                if remotes then return remotes end
+                if remotes then
+                    table.insert(result, {folder = remotes, version = child.Name})
+                end
             end
         end
     end
-    return nil, "Networker remotes folder not found"
+    return result
+end
+
+local function findRemoteService(serviceName)
+    local folders = getAllRemotesFolders()
+    for _, entry in ipairs(folders) do
+        local remote = entry.folder:FindFirstChild(serviceName)
+        if remote then
+            return remote, entry.version
+        end
+    end
+    return nil
 end
 
 -- Диагностика при запуске
 local function runDiagnostics()
     Log("=== REMOTE DIAGNOSTICS ===")
-    
-    local packages = ReplicatedStorage:FindFirstChild("Packages")
-    if not packages then
-        Log("Packages NOT FOUND in ReplicatedStorage", true)
-        Log("ReplicatedStorage children: "..table.concat(
-            (function() local t = {} for _, c in ipairs(ReplicatedStorage:GetChildren()) do table.insert(t, c.Name.."["..c.ClassName.."]") end return t end)(), ", "))
+    local folders = getAllRemotesFolders()
+    if #folders == 0 then
+        Log("No networker remotes found!", true)
         return
     end
-    Log("Packages found ✓")
-    
-    local index = packages:FindFirstChild("_Index")
-    if not index then
-        Log("_Index NOT FOUND in Packages", true)
-        Log("Packages children: "..table.concat(
-            (function() local t = {} for _, c in ipairs(packages:GetChildren()) do table.insert(t, c.Name.."["..c.ClassName.."]") end return t end)(), ", "))
-        return
-    end
-    Log("_Index found ✓")
-    
-    local indexChildren = {}
-    for _, child in ipairs(index:GetChildren()) do
-        table.insert(indexChildren, child.Name)
-    end
-    Log("_Index children: "..table.concat(indexChildren, ", "))
-    
-    local folder = getRemotesFolder()
-    if not folder then
-        Log("Remotes folder NOT FOUND", true)
-        return
-    end
-    Log("Remotes folder found ✓")
-    
-    local services = {}
-    for _, child in ipairs(folder:GetChildren()) do
-        table.insert(services, child.Name)
-    end
-    Log("Available services: "..table.concat(services, ", "))
-    
-    local zonesService = folder:FindFirstChild("ZonesService")
-    if zonesService then
-        Log("ZonesService found ✓")
-        local funcs = {}
-        for _, child in ipairs(zonesService:GetChildren()) do
-            table.insert(funcs, child.Name.."["..child.ClassName.."]")
+    for _, entry in ipairs(folders) do
+        local services = {}
+        for _, c in ipairs(entry.folder:GetChildren()) do
+            table.insert(services, c.Name)
         end
-        Log("ZonesService contents: "..table.concat(funcs, ", "))
-    else
-        Log("ZonesService NOT FOUND in remotes!", true)
-        Log("Try one of: "..table.concat(services, ", "))
+        Log(entry.version.." services: "..table.concat(services, ", "))
     end
-    
+    local zs, ver = findRemoteService("ZonesService")
+    if zs then
+        Log("ZonesService found in "..ver)
+    else
+        Log("ZonesService NOT FOUND in any networker!", true)
+    end
     Log("=== END DIAGNOSTICS ===")
 end
 
 runDiagnostics()
 
 local function callRemote(service, method, ...)
-    local folder, err = getRemotesFolder()
-    if not folder then return false, err end
-    
-    local remote = folder:FindFirstChild(service)
-    if not remote then return false, "Service '"..service.."' not found. Available: "..table.concat(
-        (function() local t = {} for _, c in ipairs(folder:GetChildren()) do table.insert(t, c.Name) end return t end)(), ", ") end
+    local remote = findRemoteService(service)
+    if not remote then return false, "Service '"..service.."' not found in any networker" end
     
     local func = remote:FindFirstChild("RemoteFunction")
-    if not func then
-        local children = {}
-        for _, c in ipairs(remote:GetChildren()) do table.insert(children, c.Name.."["..c.ClassName.."]") end
-        return false, "RemoteFunction not found in '"..service.."'. Contents: "..table.concat(children, ", ")
-    end
+    if not func then return false, "RemoteFunction not found in '"..service.."'" end
     
     local ok, result = pcall(function(...)
         return func:InvokeServer(...)
@@ -135,76 +108,11 @@ end
 
 local function Teleport(zoneId)
     Log("Attempting teleport to zone: " .. tostring(zoneId))
-    
-    -- 1. Пробуем через Remote (если ZonesService существует)
     local ok, result = callRemote("ZonesService", "requestTeleportZone", zoneId)
     if ok then
-        Log("Teleport via Remote OK. Response: "..tostring(result))
-        return
-    end
-    Log("Remote teleport unavailable: "..tostring(result))
-    
-    -- 2. Фоллбек: CFrame телепорт к зоне
-    if not clientHRP then
-        updateCharacter()
-        if not clientHRP then
-            Log("Cannot CFrame teleport: HumanoidRootPart not found", true)
-            return
-        end
-    end
-    
-    local zonesFolder = workspace:FindFirstChild("Zones")
-    if not zonesFolder then
-        Log("Cannot CFrame teleport: Zones folder not found", true)
-        return
-    end
-    
-    -- Ищем зону по номеру
-    local targetZone = nil
-    for _, zone in ipairs(zonesFolder:GetChildren()) do
-        local num = tonumber(zone.Name:match("%d+"))
-        if num == zoneId then
-            targetZone = zone
-            break
-        end
-    end
-    
-    if not targetZone then
-        Log("Zone "..zoneId.." not found in workspace", true)
-        return
-    end
-    
-    -- Ищем точку телепорта в зоне
-    local teleportTarget = nil
-    
-    -- Приоритет: SpawnLocation > Spawn > любой BasePart
-    for _, name in ipairs({"SpawnLocation", "Spawn", "SpawnPoint", "TeleportPoint", "Start"}) do
-        teleportTarget = targetZone:FindFirstChild(name, true)
-        if teleportTarget and teleportTarget:IsA("BasePart") then break end
-        teleportTarget = nil
-    end
-    
-    -- Если нет именованной точки — ищем первый BasePart (не из Gate)
-    if not teleportTarget then
-        for _, child in ipairs(targetZone:GetDescendants()) do
-            if child:IsA("BasePart") and not child:IsDescendantOf(targetZone:FindFirstChild("Gate") or targetZone) then
-                teleportTarget = child
-                break
-            end
-        end
-    end
-    
-    -- Крайний случай — любой BasePart зоны
-    if not teleportTarget then
-        teleportTarget = targetZone:FindFirstChildWhichIsA("BasePart", true)
-    end
-    
-    if teleportTarget then
-        local pos = teleportTarget.Position + Vector3.new(0, 5, 0)
-        clientHRP.CFrame = CFrame.new(pos)
-        Log("CFrame teleport to zone "..zoneId.." OK (target: "..teleportTarget.Name..", pos: "..tostring(pos)..")") 
+        Log("Teleport OK. Response: "..tostring(result))
     else
-        Log("No BasePart found in zone "..zoneId.." to teleport to", true)
+        Log("Teleport FAILED: " .. tostring(result), true)
     end
 end
 
@@ -239,10 +147,10 @@ local function TeleportBestZone()
                 local parts = {}
                 for _, child in ipairs(gate:GetDescendants()) do
                     if child:IsA("BasePart") then
-                        table.insert(parts, child.Name.."(collide="..tostring(child.CanCollide)..",transp="..string.format("%.1f", child.Transparency)..")") 
+                        table.insert(parts, child.Name.."(collide="..tostring(child.CanCollide)..")") 
                     end
                 end
-                Log("Zone "..zoneNum.." Gate contents: "..table.concat(parts, ", "))
+                Log("Zone "..zoneNum.." Gate: "..table.concat(parts, ", "))
             end
 
             -- 1. Проверяем именованный блокировщик
@@ -250,10 +158,10 @@ local function TeleportBestZone()
             if blocker then
                 if blocker.CanCollide then
                     isOpened = false
-                    Log("Zone "..zoneNum.." is LOCKED (named blocker CanCollide=true).")
+                    Log("Zone "..zoneNum.." LOCKED (blocker CanCollide=true)")
                 else
                     isOpened = true
-                    Log("Zone "..zoneNum.." is OPEN (named blocker CanCollide=false).")
+                    Log("Zone "..zoneNum.." OPEN (blocker CanCollide=false)")
                 end
             else
                 -- 2. Нет именованного блокировщика — проверяем есть ли часть с CanCollide=true
@@ -261,7 +169,7 @@ local function TeleportBestZone()
                 for _, child in ipairs(gate:GetDescendants()) do
                     if child:IsA("BasePart") and child.CanCollide == true then
                         hasCollider = true
-                        Log("Zone "..zoneNum.." is LOCKED ("..child.Name.." CanCollide=true).")
+                        Log("Zone "..zoneNum.." LOCKED ("..child.Name.." CanCollide=true)")
                         break
                     end
                 end
@@ -269,21 +177,20 @@ local function TeleportBestZone()
                     isOpened = false
                 else
                     isOpened = true
-                    Log("Zone "..zoneNum.." is OPEN (all parts CanCollide=false).")
+                    Log("Zone "..zoneNum.." OPEN (all parts CanCollide=false)")
                 end
             end
         else
             isOpened = true
-            Log("Zone "..zoneNum.." has no Gate folder, assuming opened.")  
+            Log("Zone "..zoneNum.." OPEN (no Gate folder)")
         end
 
         if isOpened then
             lastOpened = zoneNum
             bestZoneId = zoneNum
         else
-            -- Логика +1 (прыгаем в следующую за последней открытой)
             bestZoneId = zoneNum
-            Log("Zone "..zoneNum.." is locked. Applying +1 logic. Final target: "..bestZoneId)
+            Log("Zone "..zoneNum.." locked. +1 logic. Target: "..bestZoneId)
             break
         end
     end
@@ -304,7 +211,7 @@ task.spawn(function()
 end)
 
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "AutoZone Logger",
-    Text = "Script started! Press F9 to see logs.",
+    Title = "AutoZone",
+    Text = "Script started! Press F9 for logs.",
     Duration = 5
 })
