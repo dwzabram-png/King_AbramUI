@@ -68,7 +68,7 @@ local DEFAULT_CONFIG = {
 	AutoFeedInterval = 5,
 	WebhookUrl = "",
 	WebhookInterval = 30,
-	StrictBestZone = true,        -- не прыгать в закрытую зону
+	StrictBestZone = false,       -- по умолчанию +1: прыгать в следующую (закрытую) зону, как было исходно
 	FeedReserve = 0,              -- минимальный остаток еды каждого вида
 	AntiDetectJitter = true,      -- человекоподобный шум в Auto Kill/Farm
 }

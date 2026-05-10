@@ -15,7 +15,7 @@
 - **Auto Farm** — притягивает дроп к игроку. С `AntiDetectJitter` добавляет небольшой шум, чтобы паттерн выглядел менее механически.
 - **Auto Potions** — пьёт `luck`, `ultraLuck`, `currency`, `rollSpeed` зелья каждые 3 с.
 - **Auto Kill** — телепорт-фарм ближайшего врага с лёгким джиттером.
-- **Auto Best Zone** — телепортирует в лучшую открытую зону. Флаг `StrictBestZone` (по умолчанию **on**) запрещает прыжок в ещё не купленную зону.
+- **Auto Best Zone** — телепортирует в следующую (ещё не открытую) зону, чтобы быстрее её разблокировать. Флаг `StrictBestZone` (по умолчанию **off**) включает «строгий» режим: телепорт только в последнюю уже открытую зону.
 
 ### Progression (вкладка **Upgrades**)
 - **MEGA Auto Upgrade** — закупает все апгрейды из захардкоженного списка. Купленные ID кэшируются и больше не дёргаются.
@@ -58,7 +58,7 @@
   "AutoFeedInterval": 5,
   "WebhookUrl": "",
   "WebhookInterval": 30,
-  "StrictBestZone": true,
+  "StrictBestZone": false,
   "FeedReserve": 0,
   "AntiDetectJitter": true
 }
