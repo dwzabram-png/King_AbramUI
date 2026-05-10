@@ -99,6 +99,42 @@ local function TP(x, y, z)
 	clientHRP.CFrame = CFrame.new(x, y, z)
 end
 
+-- Teleport
+local function Teleport(worldNum)
+	callRemote("ZonesService", "requestTeleportZone", worldNum)
+end
+
+-- [FIXED BEST ZONE]
+local function TeleportBestZone()
+	local zonesFolder = workspace:FindFirstChild("Zones")
+	if not zonesFolder then return end
+	local best = 1
+	
+	local sortedZones = zonesFolder:GetChildren()
+	table.sort(sortedZones, function(a, b)
+		local numA = tonumber(a.Name:match("%d+")) or 0
+		local numB = tonumber(b.Name:match("%d+")) or 0
+		return numA < numB
+	end)
+
+	for _, zone in ipairs(sortedZones) do
+		local zoneNum = tonumber(zone.Name:match("%d+"))
+		if zoneNum then
+			local gate = zone:FindFirstChild("Gate")
+			local blocker = gate and (gate:FindFirstChild("ClientGateBlocker_" .. zone.Name) or gate:FindFirstChild("GateBlocker"))
+			if not blocker or blocker.CanCollide == false or blocker.Transparency >= 1 then
+				best = zoneNum
+			else
+				break
+			end
+		end
+	end
+	
+	if best > 0 then
+		Teleport(best)
+	end
+end
+
 -- Helpers
 local function getGameplayFolder()
 	for _, child in ipairs(workspace:GetChildren()) do
