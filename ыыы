@@ -92,17 +92,34 @@ local function TeleportBestZone()
         if gate then
             -- 1. Стандартная проверка блокировщика
             local blocker = gate:FindFirstChild("ClientGateBlocker_" .. zone.Name) or gate:FindFirstChild("GateBlocker")
-            if not blocker or blocker.CanCollide == false or blocker.Transparency >= 1 then
-                isOpened = true
-                Log("Zone "..zoneNum.." is opened (Main Blocker).")
+            if blocker then
+                if blocker.CanCollide == false or blocker.Transparency >= 1 then
+                    isOpened = true
+                    Log("Zone "..zoneNum.." is opened (Blocker disabled).")
+                else
+                    isOpened = false
+                    Log("Zone "..zoneNum.." is LOCKED (Blocker active: "..blocker.Name..").")
+                end
             else
-                -- 2. Глубокая проверка (находим любую деталь с CanCollide = false)
+                -- 2. Глубокая проверка — ищем ТОЛЬКО части с 'Blocker'/'Block' в имени
+                local foundBlocker = false
                 for _, child in ipairs(gate:GetDescendants()) do
-                    if child:IsA("BasePart") and child.CanCollide == false then
-                        isOpened = true
-                        Log("Zone "..zoneNum.." is opened (Deep Scan: "..child.Name.." collide is false).")
+                    if child:IsA("BasePart") and (child.Name:find("Blocker") or child.Name:find("Block")) then
+                        foundBlocker = true
+                        if child.CanCollide == false or child.Transparency >= 1 then
+                            isOpened = true
+                            Log("Zone "..zoneNum.." is opened (Deep Scan: "..child.Name.." disabled).")
+                        else
+                            isOpened = false
+                            Log("Zone "..zoneNum.." is LOCKED (Deep Scan: "..child.Name.." active).")
+                        end
                         break
                     end
+                end
+                if not foundBlocker then
+                    -- Нет блокировщика = зона открыта
+                    isOpened = true
+                    Log("Zone "..zoneNum.." has Gate but no Blocker parts, assuming opened.")
                 end
             end
         else
