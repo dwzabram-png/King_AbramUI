@@ -273,63 +273,62 @@ local function safeFind(root, ...)
 	return current
 end
 
--- [ELITE MEGA UPGRADE] - Качает абсолютно всё, что находит в UI
+-- [UPGRADE SYSTEM] Полный список всех апгрейдов
+local UPGRADES = {
+	-- === MAIN (Основные) ===
+	{name = "luck", maxLevel = 15},
+	{name = "rollSpeed", maxLevel = 6},
+	{name = "goopDropRate", maxLevel = 6},
+	{name = "cloverRolls", maxLevel = 5},
+	{name = "bonusRolls", maxLevel = 3},
+	{name = "extraRollColumn", maxLevel = 3},
+	{name = "enemyCount", maxLevel = 7},
+	{name = "slots", maxLevel = 6},
+	{name = "targetRange", maxLevel = 3},
+	{name = "friendLuck", maxLevel = 6},
+	{name = "friendBoost", maxLevel = 4},
+	{name = "goldenRolls", maxLevel = 4},
+	{name = "diamondRolls", maxLevel = 4},
+	{name = "voidRolls", maxLevel = 4},
+	-- Мутации (1 уровень)
+	{name = "bigSlimes", maxLevel = 1},
+	{name = "hugeSlimes", maxLevel = 1},
+	{name = "shinySlimes", maxLevel = 1},
+	{name = "invertedSlimes", maxLevel = 1},
+
+	-- === LOOT (Добыча) ===
+	{name = "coinIncome", maxLevel = 13},
+	{name = "overkill", maxLevel = 6},
+	{name = "offlineLoot", maxLevel = 5},
+	{name = "enemySpawnSpeed", maxLevel = 3},
+	-- Предметы лута (1 уровень каждый)
+	{name = "apple", maxLevel = 1},
+	{name = "carrot", maxLevel = 1},
+	{name = "cherries", maxLevel = 1},
+	{name = "grapes", maxLevel = 1},
+	{name = "banana", maxLevel = 1},
+	{name = "watermelon", maxLevel = 1},
+	{name = "pizza", maxLevel = 1},
+	{name = "chicken", maxLevel = 1},
+	{name = "drumstick", maxLevel = 1},
+	-- Бусты лута (1 уровень каждый)
+	{name = "luckBoost", maxLevel = 1},
+	{name = "currencyBoost", maxLevel = 1},
+	{name = "rollSpeedBoost", maxLevel = 1},
+	{name = "ultraLuckBoost", maxLevel = 1},
+
+	-- === PLAYER (Игрок) ===
+	{name = "walkSpeed", maxLevel = 3},
+	{name = "magnet", maxLevel = 3},
+	{name = "teleporter", maxLevel = 1},
+}
+
 local function Upgrade()
-	local root = safeFind(localPlayer, "PlayerGui", "Root")
-	if not root then return end
-
-	-- Расширенный маппинг экранов на вероятные сервисы
-	local serviceMap = {
-		UpgradeScreen = "UpgradeService",
-		RebirthUpgradeScreen = "RebirthService",
-		SkillUpgradeScreen = "SkillUpgradeService",
-		MasteryUpgradeScreen = "MasteryService",
-		AuraUpgradeScreen = "AuraService",
-		PetUpgradeScreen = "PetService",
-		RelicUpgradeScreen = "RelicService"
-	}
-
-	-- Динамический поиск всех "апгрейд-подобных" экранов
-	for _, screen in ipairs(root:GetChildren()) do
-		local sName = screen.Name:lower()
-		if sName:find("upgrade") or sName:find("skill") or sName:find("mastery") or sName:find("aura") or sName:find("shop") then
-			-- Ищем контейнер с плитками (Frame, ScrollingFrame, и т.д.)
-			local container = safeFind(screen, "UpgradeContent", "Frame") 
-				or safeFind(screen, "Content", "Frame") 
-				or safeFind(screen, "Main", "ScrollingFrame")
-				or screen:FindFirstChild("ScrollingFrame", true)
-				or screen:FindFirstChild("Frame", true)
-
-			if container and container:IsA("GuiObject") then
-				for _, tile in ipairs(container:GetChildren()) do
-					-- Пропускаем технические объекты UI
-					if not tile:IsA("UIComponent") and not tile:IsA("UIGuideline") then
-						-- Извлекаем имя апгрейда (удаляем технические суффиксы)
-						local upgradeName = tile.Name:match("^(%S+)Tile") 
-							or tile.Name:match("^(%S+)Upgrade") 
-							or tile.Name:match("^(%S+)Button")
-							or tile.Name
-
-						if upgradeName and #upgradeName > 0 and upgradeName ~= "Template" then
-							-- Пытаемся определить сервис
-							local targetService = serviceMap[screen.Name] or "UpgradeService"
-							
-							-- Основной вызов
-							callRemote(targetService, "requestUnlock", upgradeName)
-							
-							-- Резервные вызовы для кросс-совместимости (в новых играх часто мешают сервисы)
-							if targetService ~= "UpgradeService" then
-								task.defer(function()
-									callRemote("UpgradeService", "requestUnlock", upgradeName)
-									callRemote(targetService, "requestPurchase", upgradeName) -- Альтернативный метод
-								end)
-							end
-							
-							task.wait(0.01) -- Минимальная задержка для Delta
-						end
-					end
-				end
-			end
+	for _, upg in ipairs(UPGRADES) do
+		for level = 1, upg.maxLevel do
+			local id = upg.name .. level
+			callRemote("UpgradeService", "requestUnlock", id)
+			task.wait(0.05)
 		end
 	end
 end
