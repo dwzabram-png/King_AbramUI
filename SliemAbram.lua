@@ -358,7 +358,6 @@ local function getEquippedSlimeUUIDs()
 		return result
 	end)
 	if ok1 and uuids1 and #uuids1 > 0 then
-		print("[Feed] Got " .. #uuids1 .. " UUIDs via DataService:get")
 		return uuids1
 	end
 
@@ -378,7 +377,6 @@ local function getEquippedSlimeUUIDs()
 		return result
 	end)
 	if ok2 and uuids2 and #uuids2 > 0 then
-		print("[Feed] Got " .. #uuids2 .. " UUIDs via getDataSource")
 		return uuids2
 	end
 
@@ -398,11 +396,9 @@ local function getEquippedSlimeUUIDs()
 		return result
 	end)
 	if ok3 and uuids3 and #uuids3 > 0 then
-		print("[Feed] Got " .. #uuids3 .. " UUIDs via DataService:getValue")
 		return uuids3
 	end
 
-	print("[Feed] All UUID methods failed")
 	return {}
 end
 
@@ -425,20 +421,12 @@ end
 
 local function FeedSlimes()
 	task.defer(function()
-		print("[Feed] started")
-
 		-- 1. Получаем UUID экипированных слаймов
 		local equippedUUIDs = getEquippedSlimeUUIDs()
 		if #equippedUUIDs == 0 then
 			Notify("Feed", "No equipped slimes found")
-			print("[Feed] No equipped slimes")
 			return
 		end
-		print("[Feed] Equipped: " .. #equippedUUIDs .. " slimes")
-		for i, uuid in ipairs(equippedUUIDs) do
-			print("[Feed]   [" .. i .. "] " .. uuid)
-		end
-
 		-- 2. Пробуем получить количество еды из DataService
 		local loot = getLootCounts()
 
@@ -477,13 +465,11 @@ local function FeedSlimes()
 
 			if totalFood > 0 then
 				local perSlime = math.max(1, math.floor(totalFood / #equippedUUIDs))
-				print("[Feed] " .. foodName .. ": " .. totalFood .. " -> " .. perSlime .. "/slime")
 				for _, slimeUUID in ipairs(equippedUUIDs) do
 					local ok, res = callRemote("InventoryService", "requestUseFood", foodName, slimeUUID, perSlime)
 					if ok then
 						fedCount = fedCount + 1
 					end
-					print("[Feed] " .. foodName .. " -> " .. slimeUUID .. " ok=" .. tostring(ok))
 					task.wait(0.05)
 				end
 			end
@@ -492,7 +478,6 @@ local function FeedSlimes()
 		if fedCount > 0 then
 			Notify("Feed", "Fed " .. fedCount .. " food items")
 		end
-		print("[Feed] done, fed " .. fedCount)
 	end)
 end
 
@@ -639,12 +624,9 @@ local function startFeature(name)
 
 	if cfg.kind == "task_loop" then
 		local thread = task.spawn(function()
-			print("[Loop] " .. name .. " loop started, interval=" .. tostring(cfg.getInterval()))
 			while State[name] do
-				print("[Loop] " .. name .. " tick")
 				local ok, err = pcall(cfg.action)
 				if not ok then
-					print("[Loop] " .. name .. " ERROR: " .. tostring(err))
 					Notify("Loop Error", name .. ": " .. tostring(err))
 					task.wait(2)
 				end
@@ -664,10 +646,8 @@ end
 -- ==================== LOGIC ====================
 local function toggleFeature(name, value)
 	State[name] = value
-	print("[Toggle] " .. name .. " = " .. tostring(value))
 	Notify(name, value and "Enabled" or "Disabled")
 	if value then
-		print("[Toggle] Starting feature: " .. name)
 		startFeature(name)
 	else
 		stopFeature(name)
