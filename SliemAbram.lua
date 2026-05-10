@@ -12,10 +12,14 @@ local TweenService = game:GetService("TweenService")
 local localPlayer = Players.LocalPlayer
 local client, clientHRP
 
--- Dynamic character reference (fixes respawn issues)
+-- [FIXED] Более надежное обновление персонажа
 local function updateCharacter()
 	client = localPlayer.Character or localPlayer.CharacterAdded:Wait()
-	clientHRP = client:WaitForChild("HumanoidRootPart", 5)
+	clientHRP = client:WaitForChild("HumanoidRootPart", 10)
+	if not clientHRP then
+		task.wait(1)
+		return updateCharacter()
+	end
 end
 updateCharacter()
 localPlayer.CharacterAdded:Connect(updateCharacter)
@@ -47,21 +51,36 @@ local Config = {
 	WebhookInterval = 30
 }
 
--- Centralized remote caller
-local RemotesFolder = ReplicatedStorage:WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("leifstout_networker@0.3.1"):WaitForChild("networker"):WaitForChild("_remotes")
+-- [FIXED] Динамический поиск Remotes (теперь не привязан к версии 0.3.1)
+local function getRemotesFolder()
+	local packages = ReplicatedStorage:FindFirstChild("Packages")
+	if not packages then return nil end
+	local index = packages:FindFirstChild("_Index")
+	if not index then return nil end
+	for _, child in ipairs(index:GetChildren()) do
+		if child.Name:find("networker") then
+			local remotes = child:FindFirstChild("networker") and child.networker:FindFirstChild("_remotes")
+			if remotes then return remotes end
+		end
+	end
+	return nil
+end
+
+local RemotesFolder = getRemotesFolder()
 
 local function callRemote(service, method, ...)
+	if not RemotesFolder then RemotesFolder = getRemotesFolder() end
+	if not RemotesFolder then return false, "Remote folder not found" end
+	
 	local remote = RemotesFolder:FindFirstChild(service)
-	if not remote then return false, "Remote folder not found" end
+	if not remote then return false, "Remote service not found" end
 	local func = remote:FindFirstChild("RemoteFunction")
 	if not func then return false, "RemoteFunction not found" end
+	
 	local ok, result = pcall(function(...)
 		return func:InvokeServer(...)
 	end, method, ...)
-	if not ok then
-		return false, result
-	end
-	return true, result
+	return ok, result
 end
 
 -- Notifications
@@ -131,10 +150,9 @@ local function Kill()
 	end
 	
 	if target then
-		-- Smooth fly/move towards target
 		local targetPos = target.CFrame * CFrame.new(0, 0, 3)
-		clientHRP.CFrame = clientHRP.CFrame:Lerp(targetPos, 0.15) -- 0.15 for smooth but fast speed
-		clientHRP.AssemblyLinearVelocity = Vector3.new(0,0,0) -- Stop physics from interfering
+		clientHRP.CFrame = clientHRP.CFrame:Lerp(targetPos, 0.15)
+		clientHRP.AssemblyLinearVelocity = Vector3.new(0,0,0)
 	end
 end
 
@@ -161,7 +179,7 @@ local function SendDiscordWebhook(url, data)
 		embeds = {{
 			title = data.title,
 			description = data.description,
-			color = 3447003, -- Blue color
+			color = 3447003,
 			footer = { text = "Plink Utils" },
 			timestamp = DateTime.now():ToIsoDate(),
 		}},
@@ -175,11 +193,7 @@ local function SendDiscordWebhook(url, data)
 			Body = HttpService:JSONEncode(body)
 		})
 	end)
-	if not success then
-		Notify("Webhook Error", tostring(err))
-		return false
-	end
-	return true
+	return success
 end
 
 -- Safe UI traversal helper
@@ -192,21 +206,25 @@ local function safeFind(root, ...)
 	return current
 end
 
--- Upgrades
-local function getUpgradeTiles()
-	local frame = safeFind(localPlayer, "PlayerGui", "Root", "UpgradeScreen", "UpgradeContent", "Frame")
-	return frame and frame:GetChildren() or {}
-end
-
+-- [FIXED] MEGA Upgrade (теперь качает абсолютно всё)
 local function Upgrade()
-	local tiles = getUpgradeTiles()
-	if not tiles then return end
-	for _, tile in ipairs(tiles) do
-		if tile:IsA("GuiButton") and tile.Name ~= "UIAspectRatioConstraint" and tile.Name ~= "UpgradeHoverInfo" then
-			local upgrade = tile.Name:match("^(%S+)Tile")
-			if upgrade then
-				callRemote("UpgradeService", "requestUnlock", upgrade)
-				task.wait(0.05)
+	local paths = {
+		{"PlayerGui", "Root", "UpgradeScreen", "UpgradeContent", "Frame"},
+		{"PlayerGui", "Root", "RebirthUpgradeScreen", "UpgradeContent", "Frame"},
+		{"PlayerGui", "Root", "SkillUpgradeScreen", "UpgradeContent", "Frame"}
+	}
+	for _, path in ipairs(paths) do
+		local folder = localPlayer
+		for _, name in ipairs(path) do
+			folder = folder and folder:FindFirstChild(name)
+		end
+		if folder then
+			for _, tile in ipairs(folder:GetChildren()) do
+				local upgradeName = tile.Name:match("^(%S+)Tile") or tile.Name:match("^(%S+)Upgrade")
+				if upgradeName then
+					callRemote("UpgradeService", "requestUnlock", upgradeName)
+					task.wait(0.02)
+				end
 			end
 		end
 	end
@@ -223,7 +241,7 @@ local function getRollCooldown()
 		local num = tonumber(label.Text:match("[%d%.]+"))
 		return num or 0.5
 	end
-	return 0.5 -- safe fallback
+	return 0.5
 end
 
 -- Potions
@@ -375,7 +393,7 @@ local function startFeature(name)
 				local ok, err = pcall(cfg.action)
 				if not ok then
 					Notify("Loop Error", name .. ": " .. tostring(err))
-					break
+					task.wait(2)
 				end
 				if not State[name] then break end
 				task.wait(cfg.getInterval())
@@ -404,8 +422,11 @@ end
 
 -- ==================== UI v5 — PERFECT DARK MODE & WIDGET & ALL FEATURES ====================
 pcall(function()
-	local oldGui = CoreGui:FindFirstChild("AbramSliemGui")
-	if oldGui then oldGui:Destroy() end
+	for _, v in ipairs(CoreGui:GetChildren()) do
+		if v:IsA("ScreenGui") and (v.Name == "AbramSliemGui" or v.Name:match("^AS_")) then
+			v:Destroy()
+		end
+	end
 end)
 
 local C = {
@@ -450,7 +471,7 @@ local function addStroke(p, col, t)
 end
 
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "AbramSliemGui"
+screenGui.Name = "AS_" .. HttpService:GenerateGUID(false):sub(1,8)
 screenGui.ResetOnSpawn = false
 screenGui.Parent = gethui and gethui() or CoreGui
 
@@ -460,7 +481,7 @@ main.Position = UDim2.new(0.5, -180, 0.5, -240)
 main.BackgroundColor3 = C.BG
 main.BorderSizePixel = 0
 main.ClipsDescendants = false
-main.Active = true -- Защита от кликов сквозь UI на мобилках
+main.Active = true
 main.Parent = screenGui
 addCorner(main, 12)
 addStroke(main, C.Border, 1)
@@ -684,7 +705,7 @@ pill.BackgroundColor3 = C.Surface
 pill.AutoButtonColor = false
 pill.Text = ""
 pill.Visible = false
-pill.Active = true -- Защита от случайных кликов сквозь виджет
+pill.Active = true
 pill.Parent = screenGui
 addCorner(pill, 14)
 addStroke(pill, C.BorderHi, 1)
@@ -739,7 +760,6 @@ local function createSection(parentPage, label)
 	pad.PaddingLeft = UDim.new(0, 2)
 end
 
--- ПОЛНОСТЬЮ ПЕРЕРАБОТАННАЯ И ИСПРАВЛЕННАЯ ФУНКЦИЯ ПОЛЗУНКА (БЕЗ БАГОВ)
 local function createToggle(parentPage, label, key)
 	local row = Instance.new("TextButton")
 	row.Size = UDim2.new(1, 0, 0, 40)
@@ -778,7 +798,6 @@ local function createToggle(parentPage, label, key)
 	knob.Parent = track
 	addCorner(knob, 7)
 
-	-- Прямое использование TweenService для надежности на мобильных экзекуторах
 	local tInfoColor = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 	local tInfoPos = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
@@ -808,7 +827,6 @@ local function createToggle(parentPage, label, key)
 		setVisual(State[key], true)
 	end)
 	
-	-- Устанавливаем начальное состояние без проигрывания анимации
 	setVisual(State[key], false)
 end
 
@@ -912,7 +930,7 @@ createInput(pageMain, "Zone interval (s)", Config.AutoBestZoneInterval, function
 end)
 
 createSection(pageUpgrades, "Progression")
-createToggle(pageUpgrades, "Auto Upgrade",    "AutoUpgrade")
+createToggle(pageUpgrades, "MEGA Auto Upgrade", "AutoUpgrade")
 createToggle(pageUpgrades, "Auto Buy Zone",   "AutoBuyZone")
 createToggle(pageUpgrades, "Auto Rebirth",    "AutoRebirth")
 createToggle(pageUpgrades, "Auto Equip Best", "AutoEquipBest")
@@ -960,7 +978,7 @@ end)
 
 local pillDrag = false
 local pDragStart, pStartPos, pMoved
-local DRAG_THRESHOLD = 15 -- Увеличенный порог для мобильных свайпов
+local DRAG_THRESHOLD = 15
 
 pill.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
