@@ -339,11 +339,20 @@ local FOOD_TYPES = {"apple", "grapes", "banana", "pizza", "drumstick", "chicken"
 local function FeedSlimes()
 	-- task.defer чтобы выйти из Vide reactive scope
 	task.defer(function()
+		print("[Feed] defer started")
+
 		-- 1. Находим фрейм с надетыми слаймами
 		local ok1, equippedFrame = pcall(function()
 			return localPlayer.PlayerGui.Root.Inventory.PageInventoryContent.SlimesPage.EquippedSlimesFrame
 		end)
-		if not ok1 or not equippedFrame then return end
+		if not ok1 then print("[Feed] EquippedSlimesFrame error: " .. tostring(equippedFrame)) return end
+		if not equippedFrame then print("[Feed] EquippedSlimesFrame is nil") return end
+		print("[Feed] EquippedSlimesFrame found")
+
+		-- Дамп children
+		for _, child in ipairs(equippedFrame:GetChildren()) do
+			print("[Feed] Slime child: '" .. child.Name .. "' [" .. child.ClassName .. "] len=" .. #child.Name)
+		end
 
 		-- Собираем UUID прямо из имен объектов в UI
 		local equippedUUIDs = {}
@@ -353,13 +362,16 @@ local function FeedSlimes()
 			end
 		end
 
+		print("[Feed] Equipped UUIDs: " .. #equippedUUIDs)
 		if #equippedUUIDs == 0 then return end
 
 		-- 2. Находим список еды
 		local ok2, consumablesList = pcall(function()
 			return localPlayer.PlayerGui.Root.Inventory.PageItemsContent.ItemsInventoryPage.DefaultItemsView.ConsumablesPanel.ConsumablesList
 		end)
-		if not ok2 or not consumablesList then return end
+		if not ok2 then print("[Feed] ConsumablesList error: " .. tostring(consumablesList)) return end
+		if not consumablesList then print("[Feed] ConsumablesList is nil") return end
+		print("[Feed] ConsumablesList found")
 
 		-- 3. Раздаём еду
 		for _, foodName in pairs(FOOD_TYPES) do
@@ -380,16 +392,19 @@ local function FeedSlimes()
 
 				if totalFood > 0 then
 					local perSlime = math.floor(totalFood / #equippedUUIDs)
+					print("[Feed] " .. foodName .. ": " .. totalFood .. " total, " .. perSlime .. " per slime")
 					if perSlime > 0 then
 						for _, slimeUUID in pairs(equippedUUIDs) do
 							task.spawn(function()
-								callRemote("InventoryService", "requestUseFood", foodName, slimeUUID, perSlime)
+								local ok, res = callRemote("InventoryService", "requestUseFood", foodName, slimeUUID, perSlime)
+								print("[Feed] " .. foodName .. " -> " .. slimeUUID .. " ok=" .. tostring(ok))
 							end)
 						end
 					end
 				end
 			end
 		end
+		print("[Feed] done")
 	end)
 end
 
