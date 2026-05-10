@@ -102,7 +102,46 @@ end
 
 -- Teleport
 local function Teleport(worldNum)
-	callRemote("ZonesService", "requestTeleportZone", worldNum)
+	local ok = callRemote("ZonesService", "requestTeleportZone", worldNum)
+	if ok then return end
+	
+	-- Fallback: CFrame телепорт к зоне
+	if not clientHRP then updateCharacter() end
+	if not clientHRP then return end
+	
+	local zonesFolder = workspace:FindFirstChild("Zones")
+	if not zonesFolder then return end
+	
+	local targetZone = nil
+	for _, zone in ipairs(zonesFolder:GetChildren()) do
+		local num = tonumber(zone.Name:match("%d+"))
+		if num == worldNum then
+			targetZone = zone
+			break
+		end
+	end
+	if not targetZone then return end
+	
+	local target = nil
+	for _, name in ipairs({"SpawnLocation", "Spawn", "SpawnPoint", "TeleportPoint", "Start"}) do
+		target = targetZone:FindFirstChild(name, true)
+		if target and target:IsA("BasePart") then break end
+		target = nil
+	end
+	if not target then
+		for _, child in ipairs(targetZone:GetDescendants()) do
+			if child:IsA("BasePart") and not child:IsDescendantOf(targetZone:FindFirstChild("Gate") or targetZone) then
+				target = child
+				break
+			end
+		end
+	end
+	if not target then
+		target = targetZone:FindFirstChildWhichIsA("BasePart", true)
+	end
+	if target then
+		clientHRP.CFrame = CFrame.new(target.Position + Vector3.new(0, 5, 0))
+	end
 end
 
 -- [FIXED BEST ZONE]
