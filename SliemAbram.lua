@@ -349,16 +349,26 @@ local function FeedSlimes()
 		if not equippedFrame then print("[Feed] EquippedSlimesFrame is nil") return end
 		print("[Feed] EquippedSlimesFrame found")
 
-		-- Дамп children
-		for _, child in ipairs(equippedFrame:GetChildren()) do
-			print("[Feed] Slime child: '" .. child.Name .. "' [" .. child.ClassName .. "] len=" .. #child.Name)
+		-- Ищем слаймов в Container (UUID не прямые дети EquippedSlimesFrame)
+		local container = equippedFrame:FindFirstChild("Container")
+		local searchIn = container or equippedFrame
+
+		-- Дамп потомков для отладки
+		for _, child in ipairs(searchIn:GetDescendants()) do
+			if child:IsA("GuiObject") then
+				print("[Feed] Descendant: '" .. child.Name .. "' [" .. child.ClassName .. "] len=" .. #child.Name)
+			end
 		end
 
-		-- Собираем UUID прямо из имен объектов в UI
+		-- Собираем UUID из потомков Container
 		local equippedUUIDs = {}
-		for _, child in ipairs(equippedFrame:GetChildren()) do
+		local seen = {}
+		for _, child in ipairs(searchIn:GetDescendants()) do
 			if child:IsA("GuiObject") and (child.Name:sub(1, 1) == "." or #child.Name > 20) then
-				table.insert(equippedUUIDs, child.Name)
+				if not seen[child.Name] then
+					seen[child.Name] = true
+					table.insert(equippedUUIDs, child.Name)
+				end
 			end
 		end
 
