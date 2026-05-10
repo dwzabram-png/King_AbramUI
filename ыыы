@@ -1,0 +1,143 @@
+-- [[ STANDALONE ELITE AUTO-ZONE WITH LOGGING ]] --
+-- Оптимизировано для Delta Mobile
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local localPlayer = Players.LocalPlayer
+
+local SETTINGS = {
+    Interval = 10, -- Как часто проверять зону (сек)
+    DebugMode = true -- Выводить ли подробные логи в консоль
+}
+
+-- Функция логирования
+local function Log(msg, isError)
+    local timestamp = os.date("%X")
+    local prefix = "[AutoZone "..timestamp.."] "
+    if isError then
+        warn(prefix .. "❌ ERROR: " .. tostring(msg))
+    elseif SETTINGS.DebugMode then
+        print(prefix .. "ℹ️ " .. tostring(msg))
+    end
+end
+
+-- Динамический поиск Remotes
+local function getRemotesFolder()
+    local packages = ReplicatedStorage:FindFirstChild("Packages")
+    if not packages then return nil, "Packages not found" end
+    local index = packages:FindFirstChild("_Index")
+    if not index then return nil, "_Index not found" end
+    
+    for _, child in ipairs(index:GetChildren()) do
+        if child.Name:find("networker") then
+            local remotes = child:FindFirstChild("networker") and child.networker:FindFirstChild("_remotes")
+            if remotes then return remotes end
+        end
+    end
+    return nil, "Networker remotes folder not found"
+end
+
+local function callRemote(service, method, ...)
+    local folder, err = getRemotesFolder()
+    if not folder then return false, err end
+    
+    local remote = folder:FindFirstChild(service)
+    if not remote then return false, "Service "..service.." not found" end
+    
+    local func = remote:FindFirstChild("RemoteFunction")
+    if not func then return false, "RemoteFunction not found in "..service end
+    
+    local ok, result = pcall(function(...)
+        return func:InvokeServer(...)
+    end, method, ...)
+    
+    return ok, result
+end
+
+local function Teleport(zoneId)
+    Log("Attempting teleport to zone: " .. tostring(zoneId))
+    local ok, err = callRemote("ZonesService", "requestTeleportZone", zoneId)
+    if not ok then
+        Log("Teleport Remote Failed: " .. tostring(err), true)
+    else
+        Log("Teleport request sent successfully.")
+    end
+end
+
+local function TeleportBestZone()
+    Log("Starting zone scan...")
+    local zonesFolder = workspace:FindFirstChild("Zones")
+    if not zonesFolder then 
+        Log("Zones folder not found in Workspace!", true)
+        return 
+    end
+    
+    local zones = zonesFolder:GetChildren()
+    table.sort(zones, function(a, b)
+        local numA = tonumber(a.Name:match("%d+")) or 0
+        local numB = tonumber(b.Name:match("%d+")) or 0
+        return numA < numB
+    end)
+
+    local bestZoneId = 1
+    local lastOpened = 1
+
+    for _, zone in ipairs(zones) do
+        local zoneNum = tonumber(zone.Name:match("%d+"))
+        if not zoneNum then continue end
+        
+        local gate = zone:FindFirstChild("Gate")
+        local isOpened = false
+        
+        if gate then
+            -- 1. Стандартная проверка блокировщика
+            local blocker = gate:FindFirstChild("ClientGateBlocker_" .. zone.Name) or gate:FindFirstChild("GateBlocker")
+            if not blocker or blocker.CanCollide == false or blocker.Transparency >= 1 then
+                isOpened = true
+                Log("Zone "..zoneNum.." is opened (Main Blocker).")
+            else
+                -- 2. Глубокая проверка (находим любую деталь с CanCollide = false)
+                for _, child in ipairs(gate:GetDescendants()) do
+                    if child:IsA("BasePart") and child.CanCollide == false then
+                        isOpened = true
+                        Log("Zone "..zoneNum.." is opened (Deep Scan: "..child.Name.." collide is false).")
+                        break
+                    end
+                end
+            end
+        else
+            isOpened = true
+            Log("Zone "..zoneNum.." has no Gate folder, assuming opened.")
+        end
+
+        if isOpened then
+            lastOpened = zoneNum
+            bestZoneId = zoneNum
+        else
+            -- Логика +1 (прыгаем в следующую за последней открытой)
+            bestZoneId = zoneNum
+            Log("Zone "..zoneNum.." is locked. Applying +1 logic. Final target: "..bestZoneId)
+            break
+        end
+    end
+    
+    Teleport(bestZoneId)
+end
+
+-- Запуск цикла
+task.spawn(function()
+    Log("Script started. Check interval: " .. SETTINGS.Interval .. "s")
+    while true do
+        local ok, err = pcall(TeleportBestZone)
+        if not ok then
+            Log("Critical Loop Error: " .. tostring(err), true)
+        end
+        task.wait(SETTINGS.Interval)
+    end
+end)
+
+game:GetService("StarterGui"):SetCore("SendNotification", {
+    Title = "AutoZone Logger",
+    Text = "Script started! Press F9 to see logs.",
+    Duration = 5
+})
