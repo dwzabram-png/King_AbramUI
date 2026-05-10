@@ -727,7 +727,8 @@ end
 
 local main = Instance.new("Frame")
 main.Size = UDim2.new(0, BASE_W, 0, BASE_H)
-main.Position = UDim2.new(0.5, -BASE_W/2, 0.5, -BASE_H/2)
+main.AnchorPoint = Vector2.new(0.5, 0.5)
+main.Position = UDim2.new(0.5, 0, 0.5, 0)
 main.BackgroundColor3 = C.BG
 main.BorderSizePixel = 0
 main.ClipsDescendants = false
@@ -1235,15 +1236,20 @@ local pillDrag = false
 local pDragStart, pStartPos, pMoved
 local DRAG_THRESHOLD = 15
 
-local function isInsideGui(pos, guiObj)
-	local ap = guiObj.AbsolutePosition
-	local as = guiObj.AbsoluteSize
-	return pos.X >= ap.X and pos.X <= ap.X + as.X and pos.Y >= ap.Y and pos.Y <= ap.Y + as.Y
+local function isInsideMain(touchPos)
+	local uiScaleObj = main:FindFirstChildOfClass("UIScale")
+	local s = uiScaleObj and uiScaleObj.Scale or 1
+	local vp = camera and camera.ViewportSize or Vector2.new(1920, 1080)
+	local cx = vp.X * main.Position.X.Scale + main.Position.X.Offset
+	local cy = vp.Y * main.Position.Y.Scale + main.Position.Y.Offset
+	local hw = (BASE_W * s) / 2
+	local hh = (BASE_H * s) / 2
+	return touchPos.X >= cx - hw and touchPos.X <= cx + hw and touchPos.Y >= cy - hh and touchPos.Y <= cy + hh
 end
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-		if main.Visible and isInsideGui(input.Position, main) then
+		if main.Visible and isInsideMain(input.Position) then
 			dragPending = true
 			draggingMain = false
 			dragStartM = input.Position
