@@ -400,14 +400,19 @@ local function FeedSlimes()
 	end
 	print("[Feed] EquippedSlimesFrame found")
 
-	-- Дамп всех children
-	print("[Feed] EquippedSlimesFrame children:")
-	for _, child in pairs(equippedFrame:GetChildren()) do
+	-- Ищем Container внутри EquippedSlimesFrame (слаймы лежат там)
+	local container = equippedFrame:FindFirstChild("Container")
+	local searchIn = container or equippedFrame
+
+	-- Дамп всех потомков для отладки
+	print("[Feed] Searching in: " .. searchIn.Name .. " [" .. searchIn.ClassName .. "]")
+	print("[Feed] Descendants:")
+	for _, child in pairs(searchIn:GetDescendants()) do
 		print("  - '" .. child.Name .. "' [" .. child.ClassName .. "] len=" .. #child.Name)
 	end
 
 	local equippedUUIDs = {}
-	for _, slimeFrame in pairs(equippedFrame:GetChildren()) do
+	for _, slimeFrame in pairs(searchIn:GetDescendants()) do
 		if slimeFrame:IsA("GuiObject") and (slimeFrame.Name:sub(1, 1) == "." or #slimeFrame.Name > 20) then
 			table.insert(equippedUUIDs, slimeFrame.Name)
 		end
