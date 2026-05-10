@@ -736,7 +736,7 @@ addCorner(main, 12)
 addStroke(main, C.Border, 1)
 
 -- ===== TITLE BAR =====
-local TITLE_H = 40
+local TITLE_H = isMobile and 30 or 40
 local titleBar = Instance.new("Frame")
 titleBar.Size = UDim2.new(1, 0, 0, TITLE_H)
 titleBar.BackgroundColor3 = C.Surface
@@ -811,9 +811,9 @@ kbdLabel.TextXAlignment = Enum.TextXAlignment.Left
 kbdLabel.Parent = kbdChip
 
 -- ===== TABS =====
-local TABS_TOP = TITLE_H + 10
-local TAB_H = 32
-local TABS_PAD = 12
+local TABS_TOP = TITLE_H + (isMobile and 6 or 10)
+local TAB_H = isMobile and 26 or 32
+local TABS_PAD = isMobile and 8 or 12
 local tabNames = { "Main", "Upgrades", "Webhook" }
 
 local tabsBar = Instance.new("Frame")
@@ -857,8 +857,8 @@ for i, tabName in ipairs(tabNames) do
 end
 
 -- ===== PAGES CONTAINER =====
-local CONTENT_TOP = TABS_TOP + TAB_H + 12
-local FOOTER_H = 32
+local CONTENT_TOP = TABS_TOP + TAB_H + (isMobile and 6 or 12)
+local FOOTER_H = isMobile and 24 or 32
 local pagesContainer = Instance.new("Frame")
 pagesContainer.Size = UDim2.new(1, -TABS_PAD * 2, 1, -(CONTENT_TOP + FOOTER_H + 10))
 pagesContainer.Position = UDim2.new(0, TABS_PAD, 0, CONTENT_TOP)
@@ -880,12 +880,12 @@ local function createPage(name)
 	page.Parent = pagesContainer
 	
 	local layout = Instance.new("UIListLayout")
-	layout.Padding = UDim.new(0, 8)
+	layout.Padding = UDim.new(0, isMobile and 4 or 8)
 	layout.Parent = page
 	
 	local p = Instance.new("UIPadding")
-	p.PaddingRight = UDim.new(0, 6)
-	p.PaddingBottom = UDim.new(0, 4)
+	p.PaddingRight = UDim.new(0, isMobile and 4 or 6)
+	p.PaddingBottom = UDim.new(0, isMobile and 2 or 4)
 	p.Parent = page
 	pages[name] = page
 	return page
@@ -996,11 +996,11 @@ end
 -- ===== UI BUILDER UTILS =====
 local function createSection(parentPage, label)
 	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(1, 0, 0, 24)
+	lbl.Size = UDim2.new(1, 0, 0, isMobile and 16 or 24)
 	lbl.BackgroundTransparency = 1
 	lbl.Font = Enum.Font.GothamBold
 	lbl.Text = string.upper(label)
-	lbl.TextSize = 10
+	lbl.TextSize = isMobile and 9 or 10
 	lbl.TextColor3 = C.TextMuted
 	lbl.TextXAlignment = Enum.TextXAlignment.Left
 	lbl.TextYAlignment = Enum.TextYAlignment.Bottom
@@ -1012,7 +1012,7 @@ end
 
 local function createToggle(parentPage, label, key)
 	local row = Instance.new("TextButton")
-	row.Size = UDim2.new(1, 0, 0, 40)
+	row.Size = UDim2.new(1, 0, 0, isMobile and 30 or 40)
 	row.BackgroundColor3 = C.Surface
 	row.AutoButtonColor = false
 	row.Text = ""
@@ -1027,7 +1027,7 @@ local function createToggle(parentPage, label, key)
 	lbl.BackgroundTransparency = 1
 	lbl.Font = Enum.Font.GothamMedium
 	lbl.Text = label
-	lbl.TextSize = 13
+	lbl.TextSize = isMobile and 11 or 13
 	lbl.TextColor3 = C.Text
 	lbl.TextXAlignment = Enum.TextXAlignment.Left
 	lbl.Parent = row
@@ -1035,15 +1035,17 @@ local function createToggle(parentPage, label, key)
 	local track = Instance.new("Frame")
 	track.AnchorPoint = Vector2.new(1, 0.5)
 	track.Position = UDim2.new(1, -14, 0.5, 0)
-	track.Size = UDim2.new(0, 36, 0, 20)
+	track.Size = UDim2.new(0, isMobile and 30 or 36, 0, isMobile and 16 or 20)
 	track.BackgroundColor3 = C.Track
 	track.ClipsDescendants = false
 	track.Parent = row
 	addCorner(track, 10)
 
+	local KNOB_SIZE = isMobile and 10 or 14
+	local KNOB_PAD = 3
 	local knob = Instance.new("Frame")
-	knob.Size = UDim2.new(0, 14, 0, 14)
-	knob.Position = UDim2.new(0, 3, 0, 3)
+	knob.Size = UDim2.new(0, KNOB_SIZE, 0, KNOB_SIZE)
+	knob.Position = UDim2.new(0, KNOB_PAD, 0, KNOB_PAD)
 	knob.BackgroundColor3 = C.Knob
 	knob.Parent = track
 	addCorner(knob, 7)
@@ -1053,7 +1055,8 @@ local function createToggle(parentPage, label, key)
 
 	local function setVisual(on, animate)
 		local targetBg = on and C.Green or C.Track
-		local targetPos = on and UDim2.new(0, 19, 0, 3) or UDim2.new(0, 3, 0, 3)
+		local onX = isMobile and 15 or 19
+		local targetPos = on and UDim2.new(0, onX, 0, KNOB_PAD) or UDim2.new(0, KNOB_PAD, 0, KNOB_PAD)
 		local targetCol = on and C.Text or C.TextDim
 
 		if animate then
@@ -1082,7 +1085,7 @@ end
 
 local function createInput(parentPage, label, defaultValue, onChanged)
 	local row = Instance.new("Frame")
-	row.Size = UDim2.new(1, 0, 0, 40)
+	row.Size = UDim2.new(1, 0, 0, isMobile and 30 or 40)
 	row.BackgroundColor3 = C.Surface
 	row.BorderSizePixel = 0
 	row.Parent = parentPage
@@ -1144,7 +1147,7 @@ end
 
 local function createActionButton(parentPage, label, onClick)
 	local b = Instance.new("TextButton")
-	b.Size = UDim2.new(1, 0, 0, 36)
+	b.Size = UDim2.new(1, 0, 0, isMobile and 28 or 36)
 	b.BackgroundColor3 = C.Accent
 	b.AutoButtonColor = false
 	b.Font = Enum.Font.GothamBold
