@@ -126,21 +126,32 @@ local function TeleportBestZone()
 		local isOpened = false
 		
 		if gate then
-			-- Проверяем оригинальный блокировщик
 			local blocker = gate:FindFirstChild("ClientGateBlocker_" .. zone.Name) or gate:FindFirstChild("GateBlocker")
-			if not blocker or blocker.CanCollide == false or blocker.Transparency >= 1 then
-				isOpened = true
+			if blocker then
+				if blocker.CanCollide == false or blocker.Transparency >= 1 then
+					isOpened = true
+				else
+					isOpened = false
+				end
 			else
-				-- [SPECIAL CHECK] Проверяем любой другой объект (например, "Back" в 14 зоне)
+				-- Ищем только части с 'Blocker'/'Block' в имени
+				local foundBlocker = false
 				for _, child in ipairs(gate:GetDescendants()) do
-					if child:IsA("BasePart") and child.CanCollide == false then
-						isOpened = true
+					if child:IsA("BasePart") and (child.Name:find("Blocker") or child.Name:find("Block")) then
+						foundBlocker = true
+						if child.CanCollide == false or child.Transparency >= 1 then
+							isOpened = true
+						else
+							isOpened = false
+						end
 						break
 					end
 				end
+				if not foundBlocker then
+					isOpened = true
+				end
 			end
 		else
-			-- Если папки Gate нет, зона открыта по умолчанию
 			isOpened = true
 		end
 
