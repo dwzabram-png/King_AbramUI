@@ -716,12 +716,13 @@ local camera = workspace.CurrentCamera
 local screenSize = camera and camera.ViewportSize or Vector2.new(1920, 1080)
 
 local BASE_W, BASE_H = 360, 480
+
+local mobileScale = 1
 if isMobile then
 	local sw, sh = screenSize.X, screenSize.Y
-	local maxW = math.floor(sw * 0.55)
-	local maxH = math.floor(sh * 0.85)
-	BASE_W = math.min(BASE_W, maxW)
-	BASE_H = math.min(BASE_H, maxH)
+	local scaleW = (sw * 0.55) / BASE_W
+	local scaleH = (sh * 0.85) / BASE_H
+	mobileScale = math.min(scaleW, scaleH, 1)
 end
 
 local main = Instance.new("Frame")
@@ -732,21 +733,27 @@ main.BorderSizePixel = 0
 main.ClipsDescendants = false
 main.Active = true
 main.Parent = screenGui
-addCorner(main, isMobile and 8 or 12)
+addCorner(main, 12)
 addStroke(main, C.Border, 1)
 
+if isMobile then
+	local uiScale = Instance.new("UIScale")
+	uiScale.Scale = mobileScale
+	uiScale.Parent = main
+end
+
 -- ===== TITLE BAR =====
-local TITLE_H = isMobile and 22 or 40
+local TITLE_H = 40
 local titleBar = Instance.new("Frame")
 titleBar.Size = UDim2.new(1, 0, 0, TITLE_H)
 titleBar.BackgroundColor3 = C.Surface
 titleBar.BorderSizePixel = 0
 titleBar.Parent = main
-addCorner(titleBar, isMobile and 8 or 12)
+addCorner(titleBar, 12)
 
 local titlePatch = Instance.new("Frame")
-titlePatch.Size = UDim2.new(1, 0, 0, isMobile and 6 or 12)
-titlePatch.Position = UDim2.new(0, 0, 1, isMobile and -6 or -12)
+titlePatch.Size = UDim2.new(1, 0, 0, 12)
+titlePatch.Position = UDim2.new(0, 0, 1, -12)
 titlePatch.BackgroundColor3 = C.Surface
 titlePatch.BorderSizePixel = 0
 titlePatch.Parent = titleBar
@@ -759,20 +766,20 @@ titleSep.BorderSizePixel = 0
 titleSep.Parent = titleBar
 
 local dot = Instance.new("Frame")
-dot.Size = UDim2.new(0, isMobile and 6 or 8, 0, isMobile and 6 or 8)
-dot.Position = UDim2.new(0, isMobile and 8 or 14, 0.5, isMobile and -3 or -4)
+dot.Size = UDim2.new(0, 8, 0, 8)
+dot.Position = UDim2.new(0, 14, 0.5, -4)
 dot.BackgroundColor3 = C.TextMuted
 dot.BorderSizePixel = 0
 dot.Parent = titleBar
 addCorner(dot, 4)
 
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, isMobile and -20 or -160, 1, 0)
-title.Position = UDim2.new(0, isMobile and 18 or 28, 0, 0)
+title.Size = UDim2.new(1, -160, 1, 0)
+title.Position = UDim2.new(0, 28, 0, 0)
 title.BackgroundTransparency = 1
 title.Font = Enum.Font.GothamBold
 title.Text = "AbramSliem"
-title.TextSize = isMobile and 10 or 14
+title.TextSize = 14
 title.TextColor3 = C.Text
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = titleBar
@@ -811,9 +818,9 @@ kbdLabel.TextXAlignment = Enum.TextXAlignment.Left
 kbdLabel.Parent = kbdChip
 
 -- ===== TABS =====
-local TABS_TOP = TITLE_H + (isMobile and 3 or 10)
-local TAB_H = isMobile and 16 or 32
-local TABS_PAD = isMobile and 4 or 12
+local TABS_TOP = TITLE_H + 10
+local TAB_H = 32
+local TABS_PAD = 12
 local tabNames = { "Main", "Upgrades", "Webhook" }
 
 local tabsBar = Instance.new("Frame")
@@ -848,17 +855,17 @@ for i, tabName in ipairs(tabNames) do
 	btn.AutoButtonColor = false
 	btn.Font = Enum.Font.GothamBold
 	btn.Text = tabName
-	btn.TextSize = isMobile and 8 or 12
+	btn.TextSize = 12
 	btn.TextColor3 = C.TextMuted
 	btn.Parent = tabsBar
-	addCorner(btn, isMobile and 4 or 6)
+	addCorner(btn, 6)
 	btn.MouseButton1Click:Connect(function() setActiveTab(tabName) end)
 	tabButtons[tabName] = btn
 end
 
 -- ===== PAGES CONTAINER =====
-local CONTENT_TOP = TABS_TOP + TAB_H + (isMobile and 3 or 12)
-local FOOTER_H = isMobile and 16 or 32
+local CONTENT_TOP = TABS_TOP + TAB_H + 12
+local FOOTER_H = 32
 local pagesContainer = Instance.new("Frame")
 pagesContainer.Size = UDim2.new(1, -TABS_PAD * 2, 1, -(CONTENT_TOP + FOOTER_H + 10))
 pagesContainer.Position = UDim2.new(0, TABS_PAD, 0, CONTENT_TOP)
@@ -880,12 +887,12 @@ local function createPage(name)
 	page.Parent = pagesContainer
 	
 	local layout = Instance.new("UIListLayout")
-	layout.Padding = UDim.new(0, isMobile and 2 or 8)
+	layout.Padding = UDim.new(0, 8)
 	layout.Parent = page
 	
 	local p = Instance.new("UIPadding")
-	p.PaddingRight = UDim.new(0, isMobile and 2 or 6)
-	p.PaddingBottom = UDim.new(0, isMobile and 1 or 4)
+	p.PaddingRight = UDim.new(0, 6)
+	p.PaddingBottom = UDim.new(0, 4)
 	p.Parent = page
 	pages[name] = page
 	return page
@@ -902,7 +909,7 @@ footer.Position = UDim2.new(0, 0, 1, -FOOTER_H)
 footer.BackgroundColor3 = C.Surface
 footer.BorderSizePixel = 0
 footer.Parent = main
-addCorner(footer, isMobile and 8 or 12)
+addCorner(footer, 12)
 
 local footerPatch = Instance.new("Frame")
 footerPatch.Size = UDim2.new(1, 0, 0, 12)
@@ -919,19 +926,19 @@ footerSep.BorderSizePixel = 0
 footerSep.Parent = footer
 
 local footerDot = Instance.new("Frame")
-footerDot.Size = UDim2.new(0, isMobile and 4 or 6, 0, isMobile and 4 or 6)
-footerDot.Position = UDim2.new(0, isMobile and 8 or 14, 0.5, isMobile and -2 or -3)
+footerDot.Size = UDim2.new(0, 6, 0, 6)
+footerDot.Position = UDim2.new(0, 14, 0.5, -3)
 footerDot.BackgroundColor3 = C.TextMuted
 footerDot.Parent = footer
 addCorner(footerDot, 3)
 
 local footerStatus = Instance.new("TextLabel")
 footerStatus.Size = UDim2.new(0.5, -24, 1, 0)
-footerStatus.Position = UDim2.new(0, isMobile and 16 or 24, 0, 0)
+footerStatus.Position = UDim2.new(0, 24, 0, 0)
 footerStatus.BackgroundTransparency = 1
 footerStatus.Font = Enum.Font.GothamMedium
 footerStatus.Text = "0 active"
-footerStatus.TextSize = isMobile and 8 or 11
+footerStatus.TextSize = 11
 footerStatus.TextColor3 = C.TextDim
 footerStatus.TextXAlignment = Enum.TextXAlignment.Left
 footerStatus.Parent = footer
@@ -942,7 +949,7 @@ footerUser.Position = UDim2.new(0.5, 0, 0, 0)
 footerUser.BackgroundTransparency = 1
 footerUser.Font = Enum.Font.Gotham
 footerUser.Text = localPlayer.Name
-footerUser.TextSize = isMobile and 8 or 11
+footerUser.TextSize = 11
 footerUser.TextColor3 = C.TextMuted
 footerUser.TextXAlignment = Enum.TextXAlignment.Right
 footerUser.Parent = footer
@@ -996,53 +1003,53 @@ end
 -- ===== UI BUILDER UTILS =====
 local function createSection(parentPage, label)
 	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(1, 0, 0, isMobile and 10 or 24)
+	lbl.Size = UDim2.new(1, 0, 0, 24)
 	lbl.BackgroundTransparency = 1
 	lbl.Font = Enum.Font.GothamBold
 	lbl.Text = string.upper(label)
-	lbl.TextSize = isMobile and 7 or 10
+	lbl.TextSize = 10
 	lbl.TextColor3 = C.TextMuted
 	lbl.TextXAlignment = Enum.TextXAlignment.Left
 	lbl.TextYAlignment = Enum.TextYAlignment.Bottom
 	lbl.Parent = parentPage
 	local pad = Instance.new("UIPadding", lbl)
-	pad.PaddingBottom = UDim.new(0, isMobile and 1 or 4)
+	pad.PaddingBottom = UDim.new(0, 4)
 	pad.PaddingLeft = UDim.new(0, 2)
 end
 
 local function createToggle(parentPage, label, key)
 	local row = Instance.new("TextButton")
-	row.Size = UDim2.new(1, 0, 0, isMobile and 20 or 40)
+	row.Size = UDim2.new(1, 0, 0, 40)
 	row.BackgroundColor3 = C.Surface
 	row.AutoButtonColor = false
 	row.Text = ""
 	row.Parent = parentPage
-	addCorner(row, isMobile and 4 or 8)
+	addCorner(row, 8)
 	local rowStroke = addStroke(row, C.Border, 1)
 	rowStroke.Transparency = 0.5
 
 	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(1, isMobile and -40 or -64, 1, 0)
-	lbl.Position = UDim2.new(0, isMobile and 8 or 14, 0, 0)
+	lbl.Size = UDim2.new(1, -64, 1, 0)
+	lbl.Position = UDim2.new(0, 14, 0, 0)
 	lbl.BackgroundTransparency = 1
 	lbl.Font = Enum.Font.GothamMedium
 	lbl.Text = label
-	lbl.TextSize = isMobile and 9 or 13
+	lbl.TextSize = 13
 	lbl.TextColor3 = C.Text
 	lbl.TextXAlignment = Enum.TextXAlignment.Left
 	lbl.Parent = row
 
 	local track = Instance.new("Frame")
 	track.AnchorPoint = Vector2.new(1, 0.5)
-	track.Position = UDim2.new(1, isMobile and -6 or -14, 0.5, 0)
-	track.Size = UDim2.new(0, isMobile and 22 or 36, 0, isMobile and 12 or 20)
+	track.Position = UDim2.new(1, -14, 0.5, 0)
+	track.Size = UDim2.new(0, 36, 0, 20)
 	track.BackgroundColor3 = C.Track
 	track.ClipsDescendants = false
 	track.Parent = row
 	addCorner(track, 10)
 
-	local KNOB_SIZE = isMobile and 8 or 14
-	local KNOB_PAD = isMobile and 2 or 3
+	local KNOB_SIZE = 14
+	local KNOB_PAD = 3
 	local knob = Instance.new("Frame")
 	knob.Size = UDim2.new(0, KNOB_SIZE, 0, KNOB_SIZE)
 	knob.Position = UDim2.new(0, KNOB_PAD, 0, KNOB_PAD)
@@ -1055,7 +1062,7 @@ local function createToggle(parentPage, label, key)
 
 	local function setVisual(on, animate)
 		local targetBg = on and C.Green or C.Track
-		local onX = isMobile and 11 or 19
+		local onX = 19
 		local targetPos = on and UDim2.new(0, onX, 0, KNOB_PAD) or UDim2.new(0, KNOB_PAD, 0, KNOB_PAD)
 		local targetCol = on and C.Text or C.TextDim
 
@@ -1085,29 +1092,29 @@ end
 
 local function createInput(parentPage, label, defaultValue, onChanged)
 	local row = Instance.new("Frame")
-	row.Size = UDim2.new(1, 0, 0, isMobile and 20 or 40)
+	row.Size = UDim2.new(1, 0, 0, 40)
 	row.BackgroundColor3 = C.Surface
 	row.BorderSizePixel = 0
 	row.Parent = parentPage
-	addCorner(row, isMobile and 4 or 8)
+	addCorner(row, 8)
 	local rowStroke = addStroke(row, C.Border, 1)
 	rowStroke.Transparency = 0.5
 
 	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(0.55, isMobile and -8 or -16, 1, 0)
-	lbl.Position = UDim2.new(0, isMobile and 8 or 14, 0, 0)
+	lbl.Size = UDim2.new(0.55, -16, 1, 0)
+	lbl.Position = UDim2.new(0, 14, 0, 0)
 	lbl.BackgroundTransparency = 1
 	lbl.TextColor3 = C.TextDim
 	lbl.Font = Enum.Font.GothamMedium
-	lbl.TextSize = isMobile and 9 or 12
+	lbl.TextSize = 12
 	lbl.TextXAlignment = Enum.TextXAlignment.Left
 	lbl.Text = label
 	lbl.Parent = row
 
 	local boxFrame = Instance.new("Frame")
 	boxFrame.AnchorPoint = Vector2.new(1, 0.5)
-	boxFrame.Position = UDim2.new(1, isMobile and -6 or -14, 0.5, 0)
-	boxFrame.Size = UDim2.new(0.35, 0, 0, isMobile and 16 or 26) 
+	boxFrame.Position = UDim2.new(1, -14, 0.5, 0)
+	boxFrame.Size = UDim2.new(0.35, 0, 0, 26) 
 	boxFrame.BackgroundColor3 = C.BG 
 	boxFrame.BorderSizePixel = 0
 	boxFrame.Parent = row
@@ -1123,7 +1130,7 @@ local function createInput(parentPage, label, defaultValue, onChanged)
 	box.PlaceholderText = tostring(defaultValue)
 	box.Text = tostring(defaultValue)
 	box.Font = Enum.Font.Gotham
-	box.TextSize = isMobile and 9 or 12
+	box.TextSize = 12
 	box.TextXAlignment = Enum.TextXAlignment.Left
 	box.TextYAlignment = Enum.TextYAlignment.Center
 	box.ClearTextOnFocus = false
@@ -1131,8 +1138,8 @@ local function createInput(parentPage, label, defaultValue, onChanged)
 	box.Parent = boxFrame
 	
 	local boxPad = Instance.new("UIPadding", box)
-	boxPad.PaddingLeft = UDim.new(0, isMobile and 4 or 8)
-	boxPad.PaddingRight = UDim.new(0, isMobile and 4 or 8)
+	boxPad.PaddingLeft = UDim.new(0, 8)
+	boxPad.PaddingRight = UDim.new(0, 8)
 
 	box.Focused:Connect(function()
 		tw(bStroke,   { Color = C.Accent, Transparency = 0 })
@@ -1147,15 +1154,15 @@ end
 
 local function createActionButton(parentPage, label, onClick)
 	local b = Instance.new("TextButton")
-	b.Size = UDim2.new(1, 0, 0, isMobile and 20 or 36)
+	b.Size = UDim2.new(1, 0, 0, 36)
 	b.BackgroundColor3 = C.Accent
 	b.AutoButtonColor = false
 	b.Font = Enum.Font.GothamBold
 	b.Text = label
-	b.TextSize = isMobile and 9 or 12
+	b.TextSize = 12
 	b.TextColor3 = Color3.fromRGB(255, 255, 255)
 	b.Parent = parentPage
-	addCorner(b, isMobile and 4 or 8)
+	addCorner(b, 8)
 
 	b.MouseEnter:Connect(function() tw(b, { BackgroundColor3 = C.AccentDim }) end)
 	b.MouseLeave:Connect(function() tw(b, { BackgroundColor3 = C.Accent }) end)
@@ -1347,18 +1354,15 @@ if isMobile then
 end
 
 -- Адаптация при смене разрешения (поворот экрана и т.д.)
-if camera then
+if camera and isMobile then
 	camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
 		local newSize = camera.ViewportSize
-		if isMobile then
-			local newW = math.min(360, math.floor(newSize.X * 0.55))
-			local newH = math.min(480, math.floor(newSize.Y * 0.85))
-			if not hidden then
-				main.Size = UDim2.new(0, newW, 0, newH)
-				main.Position = UDim2.new(0.5, -newW/2, 0.5, -newH/2)
-			end
-			BASE_W = newW
-			BASE_H = newH
+		local scaleW = (newSize.X * 0.55) / 360
+		local scaleH = (newSize.Y * 0.85) / 480
+		local newScale = math.min(scaleW, scaleH, 1)
+		local uiScale = main:FindFirstChildOfClass("UIScale")
+		if uiScale then
+			uiScale.Scale = newScale
 		end
 	end)
 end
