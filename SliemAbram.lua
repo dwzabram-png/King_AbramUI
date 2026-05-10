@@ -335,17 +335,42 @@ end
 
 -- [AUTO FEED] Кормит слаймов фруктами поровну
 local function FeedSlimes()
+	print("=== AUTO FEED DIAGNOSTICS ===")
+
+	-- 1. Ищем ConsumablesList
 	local consumablesList = safeFind(localPlayer, "PlayerGui", "Root", "Inventory",
 		"PageItemsContent", "ItemsInventoryPage", "DefaultItemsView",
 		"ConsumablesPanel", "ConsumablesList")
-	if not consumablesList then return end
+	if not consumablesList then
+		print("[Feed] ConsumablesList NOT FOUND")
+		return
+	end
+	print("[Feed] ConsumablesList found")
+
+	-- Дамп всех children ConsumablesList
+	print("[Feed] ConsumablesList children:")
+	for _, child in pairs(consumablesList:GetChildren()) do
+		local hasAmount = child:FindFirstChild("Amount")
+		print("  - " .. child.Name .. " [" .. child.ClassName .. "]" .. (hasAmount and " (has Amount)" or ""))
+		if hasAmount then
+			local amountObj = child:FindFirstChild("Amount")
+			print("    Amount class: " .. amountObj.ClassName)
+			if amountObj:IsA("TextLabel") then
+				print("    Amount.Text = " .. amountObj.Text)
+			else
+				for _, sub in pairs(amountObj:GetChildren()) do
+					print("    Amount child: " .. sub.Name .. " [" .. sub.ClassName .. "]" .. (sub:IsA("TextLabel") and (" Text=" .. sub.Text) or ""))
+				end
+			end
+		end
+	end
 
 	-- 1. Собираем всю еду из GUI
 	local foodInventory = {}
 	for _, button in pairs(consumablesList:GetChildren()) do
 		if button:IsA("GuiObject") and button:FindFirstChild("Amount") then
 			local foodType = button.Name:gsub("ItemButton", ""):lower()
-			local amountObj = button.Amount
+			local amountObj = button:FindFirstChild("Amount")
 			local amountText = ""
 			if amountObj:IsA("TextLabel") then
 				amountText = amountObj.Text
@@ -355,16 +380,31 @@ local function FeedSlimes()
 			end
 			amountText = amountText:gsub("x", "")
 			local amount = tonumber(amountText) or 0
+			print("[Feed] Food: " .. foodType .. " = " .. tostring(amount))
 			if amount > 0 then
 				foodInventory[foodType] = amount
 			end
 		end
 	end
 
+	local foodCount = 0
+	for _ in pairs(foodInventory) do foodCount = foodCount + 1 end
+	print("[Feed] Total food types found: " .. foodCount)
+
 	-- 2. Собираем UUID экипированных слаймов
 	local equippedFrame = safeFind(localPlayer, "PlayerGui", "Root", "Inventory",
 		"PageInventoryContent", "SlimesPage", "EquippedSlimesFrame")
-	if not equippedFrame then return end
+	if not equippedFrame then
+		print("[Feed] EquippedSlimesFrame NOT FOUND")
+		return
+	end
+	print("[Feed] EquippedSlimesFrame found")
+
+	-- Дамп всех children
+	print("[Feed] EquippedSlimesFrame children:")
+	for _, child in pairs(equippedFrame:GetChildren()) do
+		print("  - '" .. child.Name .. "' [" .. child.ClassName .. "] len=" .. #child.Name)
+	end
 
 	local equippedUUIDs = {}
 	for _, slimeFrame in pairs(equippedFrame:GetChildren()) do
@@ -374,19 +414,23 @@ local function FeedSlimes()
 	end
 
 	local slimeCount = #equippedUUIDs
+	print("[Feed] Equipped slimes matched: " .. slimeCount)
 	if slimeCount == 0 then return end
 
 	-- 3. Распределяем и кормим
 	for foodType, totalAmount in pairs(foodInventory) do
 		local perSlime = math.floor(totalAmount / slimeCount)
 		if perSlime > 0 then
+			print("[Feed] Feeding " .. foodType .. ": " .. perSlime .. " per slime")
 			for _, uuid in pairs(equippedUUIDs) do
 				task.spawn(function()
-					callRemote("InventoryService", "requestUseFood", foodType, uuid, perSlime)
+					local ok, result = callRemote("InventoryService", "requestUseFood", foodType, uuid, perSlime)
+					print("[Feed] " .. foodType .. " -> " .. uuid .. " = " .. tostring(ok) .. " / " .. tostring(result))
 				end)
 			end
 		end
 	end
+	print("=== AUTO FEED END ===")
 end
 
 -- [FIXED ROLL]
