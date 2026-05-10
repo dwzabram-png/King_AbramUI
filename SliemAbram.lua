@@ -68,7 +68,6 @@ local DEFAULT_CONFIG = {
 	AutoFeedInterval = 5,
 	WebhookUrl = "",
 	WebhookInterval = 30,
-	StrictBestZone = false,       -- по умолчанию +1: прыгать в следующую (закрытую) зону, как было исходно
 	FeedReserve = 0,              -- минимальный остаток еды каждого вида
 	AntiDetectJitter = true,      -- человекоподобный шум в Auto Kill/Farm
 }
@@ -189,7 +188,7 @@ local function TeleportBestZone()
 		return numA < numB
 	end)
 
-	local lastOpened, firstClosed
+	local target = 1
 	for _, zone in ipairs(sortedZones) do
 		local zoneNum = tonumber(zone.Name:match("%d+"))
 		if not zoneNum then continue end
@@ -215,20 +214,15 @@ local function TeleportBestZone()
 		end
 
 		if isOpened then
-			lastOpened = zoneNum
+			target = zoneNum
 		else
-			firstClosed = zoneNum
+			-- [+1] прыгаем в следующую (закрытую) зону, чтобы её разблокировать
+			target = zoneNum
 			break
 		end
 	end
 
-	local target
-	if Config.StrictBestZone then
-		target = lastOpened
-	else
-		target = firstClosed or lastOpened
-	end
-	if target and target > 0 then
+	if target > 0 then
 		Teleport(target)
 	end
 end
@@ -1341,7 +1335,6 @@ createInput(pageMain, "Zone interval (s)", Config.AutoBestZoneInterval, function
 	Config.AutoBestZoneInterval = math.max(1, tonumber(v) or 30)
 	saveConfig()
 end)
-createConfigToggle(pageMain, "Strict Best Zone",   "StrictBestZone")
 createConfigToggle(pageMain, "Anti-Detect Jitter", "AntiDetectJitter")
 
 createSection(pageUpgrades, "Progression")
