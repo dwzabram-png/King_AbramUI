@@ -341,21 +341,48 @@ local function FeedSlimes()
 	task.defer(function()
 		print("[Feed] defer started")
 
-		-- 1. Получаем UUID экипированных слаймов из data source
-		local equippedUUIDs = {}
-		local ok1, err1 = pcall(function()
-			local getDataSource = require(ReplicatedStorage.Source.Core.UI.Sources.getDataSource)
-			local inventory = getDataSource("inventory")()
-			if inventory and inventory.slimes then
-				for uuid, data in pairs(inventory.slimes) do
-					if data.equipped == true then
-						table.insert(equippedUUIDs, uuid)
-						print("[Feed] Found slime: " .. tostring(uuid))
-					end
-				end
-			end
+		-- 1. Ищем UUID в EquippedSlimesFrame — полный дамп
+		local ok1, equippedFrame = pcall(function()
+			return localPlayer.PlayerGui.Root.Inventory.PageInventoryContent.SlimesPage.EquippedSlimesFrame
 		end)
-		if not ok1 then print("[Feed] getDataSource error: " .. tostring(err1)) end
+		if not ok1 or not equippedFrame then
+			print("[Feed] EquippedSlimesFrame not found")
+			return
+		end
+
+		-- Дамп ВСЕХ потомков (любой класс)
+		print("[Feed] === FULL DUMP EquippedSlimesFrame ===")
+		for _, obj in ipairs(equippedFrame:GetDescendants()) do
+			local attrs = ""
+			pcall(function()
+				local a = obj:GetAttributes()
+				for k, v in pairs(a) do
+					attrs = attrs .. " @" .. k .. "=" .. tostring(v)
+				end
+			end)
+			print("[Feed] " .. obj.Name .. " [" .. obj.ClassName .. "]" .. attrs)
+		end
+		print("[Feed] === END DUMP ===")
+
+		-- Собираем UUID: ищем InventorySlime_ паттерн + извлекаем UUID
+		local equippedUUIDs = {}
+		local seen = {}
+		for _, obj in ipairs(equippedFrame:GetDescendants()) do
+			local name = obj.Name
+			-- Паттерн InventorySlime_.uuid
+			local uuid = name:match("InventorySlime_(%.[%x%-]+)")
+			if uuid and not seen[uuid] then
+				seen[uuid] = true
+				table.insert(equippedUUIDs, uuid)
+				print("[Feed] Found equipped UUID: " .. uuid)
+			end
+			-- Прямой UUID (начинается с точки)
+			if not uuid and name:sub(1, 1) == "." and #name > 20 and not seen[name] then
+				seen[name] = true
+				table.insert(equippedUUIDs, name)
+				print("[Feed] Found equipped UUID (direct): " .. name)
+			end
+		end
 
 		print("[Feed] Equipped UUIDs: " .. #equippedUUIDs)
 		if #equippedUUIDs == 0 then return end
