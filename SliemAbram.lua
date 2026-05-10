@@ -1229,7 +1229,7 @@ _G.RefreshFooterUI()
 local draggingMain = false
 local dragStartM, startPosM
 
-titleBar.InputBegan:Connect(function(input)
+main.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		draggingMain = true
 		dragStartM = input.Position
