@@ -516,33 +516,6 @@ local function ClaimIndex()
 	end
 end
 
--- Collect all recipes from map
-local function CollectAllRecipes()
-	local CollectionService = game:GetService("CollectionService")
-	local recipes = CollectionService:GetTagged("Recipe")
-
-	if #recipes == 0 then
-		Notify("No recipes found in current area")
-		return
-	end
-
-	local count = 0
-	for _, obj in ipairs(recipes) do
-		local key = obj:GetAttribute("key")
-		if key then
-			local ok = callRemote("CraftingService", "requestClaimRecipe", key, obj)
-			if ok then
-				count = count + 1
-			end
-		end
-	end
-
-	if count > 0 then
-		Notify("Successfully collected " .. count .. " recipes!")
-	else
-		Notify("All recipes already collected")
-	end
-end
 
 -- ==================== FEATURE CONFIGURATION ====================
 local FEATURES = {
@@ -1216,10 +1189,6 @@ createToggle(pageMain, "Auto Best Zone", "AutoTeleportBestZone")
 createSection(pageMain, "Settings")
 createInput(pageMain, "Zone interval (s)", Config.AutoBestZoneInterval, function(v)
 	Config.AutoBestZoneInterval = math.max(1, tonumber(v) or 30)
-end)
-createSection(pageMain, "Recipe Utilities")
-createActionButton(pageMain, "Collect All Recipes", function()
-	CollectAllRecipes()
 end)
 
 createSection(pageUpgrades, "Progression")
