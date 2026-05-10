@@ -128,20 +128,16 @@ local function TeleportBestZone()
 		if gate then
 			local blocker = gate:FindFirstChild("ClientGateBlocker_" .. zone.Name) or gate:FindFirstChild("GateBlocker")
 			if blocker then
-				if blocker.CanCollide == false or blocker.Transparency >= 1 then
-					isOpened = true
-				else
-					isOpened = false
-				end
+				isOpened = not blocker.CanCollide
 			else
-				local hasSolidPart = false
+				local hasCollider = false
 				for _, child in ipairs(gate:GetDescendants()) do
-					if child:IsA("BasePart") and child.CanCollide == true and child.Transparency < 1 then
-						hasSolidPart = true
+					if child:IsA("BasePart") and child.CanCollide == true then
+						hasCollider = true
 						break
 					end
 				end
-				isOpened = not hasSolidPart
+				isOpened = not hasCollider
 			end
 		else
 			isOpened = true

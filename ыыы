@@ -104,28 +104,28 @@ local function TeleportBestZone()
             -- 1. Проверяем именованный блокировщик
             local blocker = gate:FindFirstChild("ClientGateBlocker_" .. zone.Name) or gate:FindFirstChild("GateBlocker")
             if blocker then
-                if blocker.CanCollide == false or blocker.Transparency >= 1 then
-                    isOpened = true
-                    Log("Zone "..zoneNum.." is OPEN (named blocker disabled).")
-                else
+                if blocker.CanCollide then
                     isOpened = false
-                    Log("Zone "..zoneNum.." is LOCKED (named blocker active: "..blocker.Name..").")
+                    Log("Zone "..zoneNum.." is LOCKED (named blocker CanCollide=true).")
+                else
+                    isOpened = true
+                    Log("Zone "..zoneNum.." is OPEN (named blocker CanCollide=false).")
                 end
             else
-                -- 2. Нет именованного блокировщика — проверяем есть ли ЛЮБАЯ твёрдая часть
-                local hasSolidPart = false
+                -- 2. Нет именованного блокировщика — проверяем есть ли часть с CanCollide=true
+                local hasCollider = false
                 for _, child in ipairs(gate:GetDescendants()) do
-                    if child:IsA("BasePart") and child.CanCollide == true and child.Transparency < 1 then
-                        hasSolidPart = true
-                        Log("Zone "..zoneNum.." is LOCKED (solid part: "..child.Name..").")
+                    if child:IsA("BasePart") and child.CanCollide == true then
+                        hasCollider = true
+                        Log("Zone "..zoneNum.." is LOCKED ("..child.Name.." CanCollide=true).")
                         break
                     end
                 end
-                if hasSolidPart then
+                if hasCollider then
                     isOpened = false
                 else
                     isOpened = true
-                    Log("Zone "..zoneNum.." is OPEN (no solid parts in Gate).")
+                    Log("Zone "..zoneNum.." is OPEN (all parts CanCollide=false).")
                 end
             end
         else
