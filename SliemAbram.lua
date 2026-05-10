@@ -337,58 +337,60 @@ end
 local FOOD_TYPES = {"apple", "grapes", "banana", "pizza", "drumstick", "chicken", "watermelon", "cherries", "carrot"}
 
 local function FeedSlimes()
-	-- 1. Находим фрейм с надетыми слаймами
-	local equippedFrame = safeFind(localPlayer, "PlayerGui", "Root", "Inventory",
-		"PageInventoryContent", "SlimesPage", "EquippedSlimesFrame")
+	-- task.defer чтобы выйти из Vide reactive scope
+	task.defer(function()
+		-- 1. Находим фрейм с надетыми слаймами
+		local ok1, equippedFrame = pcall(function()
+			return localPlayer.PlayerGui.Root.Inventory.PageInventoryContent.SlimesPage.EquippedSlimesFrame
+		end)
+		if not ok1 or not equippedFrame then return end
 
-	if not equippedFrame then return end
-
-	-- Собираем UUID прямо из имен объектов в UI
-	local equippedUUIDs = {}
-	for _, child in ipairs(equippedFrame:GetChildren()) do
-		if child:IsA("GuiObject") and (child.Name:sub(1, 1) == "." or #child.Name > 20) then
-			table.insert(equippedUUIDs, child.Name)
-		end
-	end
-
-	if #equippedUUIDs == 0 then return end
-
-	-- 2. Находим список еды
-	local consumablesList = safeFind(localPlayer, "PlayerGui", "Root", "Inventory",
-		"PageItemsContent", "ItemsInventoryPage", "DefaultItemsView",
-		"ConsumablesPanel", "ConsumablesList")
-
-	if not consumablesList then return end
-
-	-- 3. Раздаём еду
-	for _, foodName in pairs(FOOD_TYPES) do
-		local itemButton = consumablesList:FindFirstChild(foodName .. "ItemButton")
-		if itemButton and itemButton:FindFirstChild("Amount") then
-			local amountObj = itemButton.Amount
-			local amountText = ""
-
-			if amountObj:IsA("TextLabel") then
-				amountText = amountObj.Text
-			else
-				local label = amountObj:FindFirstChildWhichIsA("TextLabel")
-				if label then amountText = label.Text end
+		-- Собираем UUID прямо из имен объектов в UI
+		local equippedUUIDs = {}
+		for _, child in ipairs(equippedFrame:GetChildren()) do
+			if child:IsA("GuiObject") and (child.Name:sub(1, 1) == "." or #child.Name > 20) then
+				table.insert(equippedUUIDs, child.Name)
 			end
+		end
 
-			amountText = amountText:gsub("x", ""):gsub(" ", "")
-			local totalFood = tonumber(amountText) or 0
+		if #equippedUUIDs == 0 then return end
 
-			if totalFood > 0 then
-				local perSlime = math.floor(totalFood / #equippedUUIDs)
-				if perSlime > 0 then
-					for _, slimeUUID in pairs(equippedUUIDs) do
-						task.spawn(function()
-							callRemote("InventoryService", "requestUseFood", foodName, slimeUUID, perSlime)
-						end)
+		-- 2. Находим список еды
+		local ok2, consumablesList = pcall(function()
+			return localPlayer.PlayerGui.Root.Inventory.PageItemsContent.ItemsInventoryPage.DefaultItemsView.ConsumablesPanel.ConsumablesList
+		end)
+		if not ok2 or not consumablesList then return end
+
+		-- 3. Раздаём еду
+		for _, foodName in pairs(FOOD_TYPES) do
+			local itemButton = consumablesList:FindFirstChild(foodName .. "ItemButton")
+			if itemButton and itemButton:FindFirstChild("Amount") then
+				local amountObj = itemButton.Amount
+				local amountText = ""
+
+				if amountObj:IsA("TextLabel") then
+					amountText = amountObj.Text
+				else
+					local label = amountObj:FindFirstChildWhichIsA("TextLabel")
+					if label then amountText = label.Text end
+				end
+
+				amountText = amountText:gsub("x", ""):gsub(" ", "")
+				local totalFood = tonumber(amountText) or 0
+
+				if totalFood > 0 then
+					local perSlime = math.floor(totalFood / #equippedUUIDs)
+					if perSlime > 0 then
+						for _, slimeUUID in pairs(equippedUUIDs) do
+							task.spawn(function()
+								callRemote("InventoryService", "requestUseFood", foodName, slimeUUID, perSlime)
+							end)
+						end
 					end
 				end
 			end
 		end
-	end
+	end)
 end
 
 -- [FIXED ROLL]
