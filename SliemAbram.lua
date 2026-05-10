@@ -1,5 +1,7 @@
 repeat task.wait() until game:IsLoaded()
 
+local VERSION = "1.0.0"
+
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
@@ -12,13 +14,28 @@ local TweenService = game:GetService("TweenService")
 local localPlayer = Players.LocalPlayer
 local client, clientHRP
 
--- [FIXED] Более надежное обновление персонажа
+-- Единый неймспейс вместо разрозненных _G.* (избегаем коллизий)
+_G.AbramSliem = _G.AbramSliem or {}
+local NS = _G.AbramSliem
+NS.version = VERSION
+
+-- Executor API discovery + capability flags
+local httpRequest = (syn and syn.request) or http_request or request or (http and http.request)
+local hasFS = type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function"
+local getHui = gethui
+
+-- Обновление персонажа без рекурсии — устойчиво к длительному отсутствию HRP
 local function updateCharacter()
-	client = localPlayer.Character or localPlayer.CharacterAdded:Wait()
-	clientHRP = client:WaitForChild("HumanoidRootPart", 10)
-	if not clientHRP then
+	local attempts = 0
+	while attempts < 30 do
+		client = localPlayer.Character or localPlayer.CharacterAdded:Wait()
+		local hrp = client:WaitForChild("HumanoidRootPart", 10)
+		if hrp then
+			clientHRP = hrp
+			return
+		end
+		attempts = attempts + 1
 		task.wait(1)
-		return updateCharacter()
 	end
 end
 updateCharacter()
@@ -45,15 +62,46 @@ local State = {
 	AutoFeed = false,
 	Webhook = false
 }
-local Config = {
+local DEFAULT_CONFIG = {
 	AutoBestZoneInterval = 15,
 	AutoUpgradeInterval = 30,
 	AutoFeedInterval = 5,
 	WebhookUrl = "",
-	WebhookInterval = 30
+	WebhookInterval = 30,
+	StrictBestZone = true,        -- не прыгать в закрытую зону
+	FeedReserve = 0,              -- минимальный остаток еды каждого вида
+	AntiDetectJitter = true,      -- человекоподобный шум в Auto Kill/Farm
 }
+local Config = table.clone(DEFAULT_CONFIG)
 
--- Динамический поиск Remotes (проверяет ВСЕ версии networker)
+-- ===== CONFIG PERSISTENCE =====
+local CONFIG_FILE = "AbramSliem_config.json"
+
+local function saveConfig()
+	if not hasFS then return end
+	pcall(function()
+		writefile(CONFIG_FILE, HttpService:JSONEncode(Config))
+	end)
+end
+
+local function loadConfig()
+	if not hasFS then return end
+	pcall(function()
+		if not isfile(CONFIG_FILE) then return end
+		local raw = readfile(CONFIG_FILE)
+		local ok, decoded = pcall(function() return HttpService:JSONDecode(raw) end)
+		if ok and type(decoded) == "table" then
+			for k, v in pairs(decoded) do
+				if DEFAULT_CONFIG[k] ~= nil and type(v) == type(DEFAULT_CONFIG[k]) then
+					Config[k] = v
+				end
+			end
+		end
+	end)
+end
+loadConfig()
+
+-- Динамический поиск Remotes (проверяет ВСЕ версии networker) с кэшем
 local function getAllRemotesFolders()
 	local result = {}
 	local packages = ReplicatedStorage:FindFirstChild("Packages")
@@ -74,21 +122,34 @@ local function getAllRemotesFolders()
 	return result
 end
 
+local remoteCache = {}
 local function findRemoteService(serviceName)
+	local cached = remoteCache[serviceName]
+	if cached and cached.Parent then
+		return cached
+	end
 	local folders = getAllRemotesFolders()
 	for _, folder in ipairs(folders) do
 		local remote = folder:FindFirstChild(serviceName)
-		if remote then return remote end
+		if remote then
+			remoteCache[serviceName] = remote
+			return remote
+		end
 	end
 	return nil
 end
 
+local remoteFnCache = {}
 local function callRemote(service, method, ...)
-	local remote = findRemoteService(service)
-	if not remote then return false, "Service not found" end
-	local func = remote:FindFirstChild("RemoteFunction")
-	if not func then return false, "RemoteFunction not found" end
-	
+	local func = remoteFnCache[service]
+	if not (func and func.Parent) then
+		local remote = findRemoteService(service)
+		if not remote then return false, "Service not found" end
+		func = remote:FindFirstChild("RemoteFunction")
+		if not func then return false, "RemoteFunction not found" end
+		remoteFnCache[service] = func
+	end
+
 	local ok, result = pcall(function(...)
 		return func:InvokeServer(...)
 	end, method, ...)
@@ -117,12 +178,10 @@ local function Teleport(worldNum)
 	callRemote("ZonesService", "requestTeleportZone", worldNum)
 end
 
--- [FIXED BEST ZONE]
 local function TeleportBestZone()
 	local zonesFolder = workspace:FindFirstChild("Zones")
 	if not zonesFolder then return end
-	local best = 1
-	
+
 	local sortedZones = zonesFolder:GetChildren()
 	table.sort(sortedZones, function(a, b)
 		local numA = tonumber(a.Name:match("%d+")) or 0
@@ -130,13 +189,13 @@ local function TeleportBestZone()
 		return numA < numB
 	end)
 
+	local lastOpened, firstClosed
 	for _, zone in ipairs(sortedZones) do
 		local zoneNum = tonumber(zone.Name:match("%d+"))
 		if not zoneNum then continue end
-		
+
 		local gate = zone:FindFirstChild("Gate")
-		local isOpened = false
-		
+		local isOpened
 		if gate then
 			local blocker = gate:FindFirstChild("ClientGateBlocker_" .. zone.Name) or gate:FindFirstChild("GateBlocker")
 			if blocker then
@@ -156,16 +215,21 @@ local function TeleportBestZone()
 		end
 
 		if isOpened then
-			best = zoneNum
+			lastOpened = zoneNum
 		else
-			-- [PLUS ONE LOGIC] Пробуем прыгнуть в следующую (закрытую) зону
-			best = zoneNum
+			firstClosed = zoneNum
 			break
 		end
 	end
-	
-	if best > 0 then
-		Teleport(best)
+
+	local target
+	if Config.StrictBestZone then
+		target = lastOpened
+	else
+		target = firstClosed or lastOpened
+	end
+	if target and target > 0 then
+		Teleport(target)
 	end
 end
 
@@ -181,8 +245,8 @@ end
 
 local function toggleNoclip(value)
 	if value then
-		if _G.NoclipConn then _G.NoclipConn:Disconnect() end
-		_G.NoclipConn = RunService.Stepped:Connect(function()
+		if NS.NoclipConn then NS.NoclipConn:Disconnect() end
+		NS.NoclipConn = RunService.Stepped:Connect(function()
 			if not client then return end
 			for _, part in ipairs(client:GetDescendants()) do
 				if part:IsA("BasePart") then
@@ -191,9 +255,9 @@ local function toggleNoclip(value)
 			end
 		end)
 	else
-		if _G.NoclipConn then
-			_G.NoclipConn:Disconnect()
-			_G.NoclipConn = nil
+		if NS.NoclipConn then
+			NS.NoclipConn:Disconnect()
+			NS.NoclipConn = nil
 		end
 	end
 end
@@ -203,10 +267,10 @@ local function Kill()
 	local gameplay = getGameplayFolder()
 	local enemies = gameplay and gameplay:FindFirstChild("Enemies")
 	if not enemies then return end
-	
+
 	local target = nil
 	local minDist = math.huge
-	
+
 	for _, enemy in ipairs(enemies:GetChildren()) do
 		local hrp = enemy:FindFirstChild("RootPart") or enemy:FindFirstChild("HumanoidRootPart") or enemy:FindFirstChild("PrimaryPart")
 		if hrp then
@@ -217,10 +281,16 @@ local function Kill()
 			end
 		end
 	end
-	
+
 	if target then
-		local targetPos = target.CFrame * CFrame.new(0, 0, 3)
-		clientHRP.CFrame = clientHRP.CFrame:Lerp(targetPos, 0.15)
+		local jitter = Vector3.new(0, 0, 0)
+		local lerpAlpha = 0.15
+		if Config.AntiDetectJitter then
+			jitter = Vector3.new((math.random()-0.5)*0.5, (math.random()-0.5)*0.3, (math.random()-0.5)*0.5)
+			lerpAlpha = 0.12 + math.random()*0.08
+		end
+		local targetPos = target.CFrame * CFrame.new(0, 0, 3) + jitter
+		clientHRP.CFrame = clientHRP.CFrame:Lerp(targetPos, lerpAlpha)
 		clientHRP.AssemblyLinearVelocity = Vector3.new(0,0,0)
 	end
 end
@@ -238,8 +308,7 @@ local function SendDiscordWebhook(url, data)
 		Notify("Webhook Error", "Invalid Discord webhook URL")
 		return false
 	end
-	local requestFn = request or http_request or (syn and syn.request)
-	if not requestFn then
+	if not httpRequest then
 		Notify("Webhook Error", "HTTP request API is not available in this executor")
 		return false
 	end
@@ -249,13 +318,13 @@ local function SendDiscordWebhook(url, data)
 			title = data.title,
 			description = data.description,
 			color = 3447003,
-			footer = { text = "Plink Utils" },
+			footer = { text = "AbramSliem v" .. VERSION },
 			timestamp = DateTime.now():ToIsoDate(),
 		}},
 		attachments = {}
 	}
-	local success, err = pcall(function()
-		requestFn({
+	local success, _err = pcall(function()
+		httpRequest({
 			Url = url,
 			Method = "POST",
 			Headers = {["Content-Type"] = "application/json" },
@@ -326,9 +395,18 @@ add(range("walkSpeed", 1, 3))
 add(range("magnet", 1, 3))
 add({"teleporter"})
 
+-- Кэш купленных апгрейдов: если сервер ответил «уже куплено», больше не дёргаем
+local upgradeDone = {}
 local function Upgrade()
 	for _, id in ipairs(ALL_UPGRADES) do
-		callRemote("UpgradeService", "requestUnlock", id)
+		if not State.AutoUpgrade then return end
+		if not upgradeDone[id] then
+			local ok, result = callRemote("UpgradeService", "requestUnlock", id)
+			-- Эвристика: если успешный вызов вернул false/строку «owned/maxed» — пометить как готовый
+			if ok and (result == false or (type(result) == "string" and result:lower():match("own") or result == "maxed")) then
+				upgradeDone[id] = true
+			end
+		end
 		task.wait(0.05)
 	end
 end
@@ -463,10 +541,12 @@ local function FeedSlimes()
 				end)
 			end
 
-			if totalFood > 0 then
-				local perSlime = math.max(1, math.floor(totalFood / #equippedUUIDs))
+			local reserve = math.max(0, tonumber(Config.FeedReserve) or 0)
+			local available = totalFood - reserve
+			if available > 0 then
+				local perSlime = math.max(1, math.floor(available / #equippedUUIDs))
 				for _, slimeUUID in ipairs(equippedUUIDs) do
-					local ok, res = callRemote("InventoryService", "requestUseFood", foodName, slimeUUID, perSlime)
+					local ok, _res = callRemote("InventoryService", "requestUseFood", foodName, slimeUUID, perSlime)
 					if ok then
 						fedCount = fedCount + 1
 					end
@@ -536,11 +616,17 @@ local FEATURES = {
 			if not State.AutoFarm or not clientHRP then return end
 			local lootFolder = workspace:FindFirstChild("Loot")
 			if not lootFolder then return end
+			local baseCF = clientHRP.CFrame
 			for _, drop in ipairs(lootFolder:GetChildren()) do
 				if not State.AutoFarm then break end
 				for _, child in ipairs(drop:GetChildren()) do
 					if child:IsA("BasePart") and child.Name ~= "LootHighlight" then
-						child.CFrame = clientHRP.CFrame
+						if Config.AntiDetectJitter then
+							local jx, jy, jz = (math.random()-0.5)*1.2, (math.random()-0.5)*0.6, (math.random()-0.5)*1.2
+							child.CFrame = baseCF + Vector3.new(jx, jy, jz)
+						else
+							child.CFrame = baseCF
+						end
 					end
 				end
 			end
@@ -653,7 +739,7 @@ local function toggleFeature(name, value)
 	else
 		stopFeature(name)
 	end
-	if _G.RefreshFooterUI then _G.RefreshFooterUI() end
+	if NS.RefreshFooterUI then NS.RefreshFooterUI() end
 end
 
 -- ==================== UI v5 — PERFECT DARK MODE & WIDGET & ALL FEATURES ====================
@@ -709,7 +795,7 @@ end
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "AS_" .. HttpService:GenerateGUID(false):sub(1,8)
 screenGui.ResetOnSpawn = false
-screenGui.Parent = gethui and gethui() or CoreGui
+screenGui.Parent = (getHui and getHui()) or CoreGui
 
 -- Определение платформы и адаптивный размер
 local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
@@ -989,7 +1075,7 @@ addCorner(pillStatusDot, 5)
 pill.MouseEnter:Connect(function() tw(pill, { BackgroundColor3 = C.SurfaceHi }) end)
 pill.MouseLeave:Connect(function() tw(pill, { BackgroundColor3 = C.Surface }) end)
 
-_G.RefreshFooterUI = function()
+NS.RefreshFooterUI = function()
 	local count = 0
 	for _, v in pairs(State) do
 		if v then count = count + 1 end
@@ -1092,6 +1178,70 @@ local function createToggle(parentPage, label, key)
 	setVisual(State[key], false)
 end
 
+-- Тоггл для булевых полей Config (персистится в JSON, не влияет на счётчик active)
+local function createConfigToggle(parentPage, label, configKey)
+	local row = Instance.new("TextButton")
+	row.Size = UDim2.new(1, 0, 0, 40)
+	row.BackgroundColor3 = C.Surface
+	row.AutoButtonColor = false
+	row.Text = ""
+	row.Parent = parentPage
+	addCorner(row, 8)
+	local rowStroke = addStroke(row, C.Border, 1)
+	rowStroke.Transparency = 0.5
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1, -64, 1, 0)
+	lbl.Position = UDim2.new(0, 14, 0, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.Font = Enum.Font.GothamMedium
+	lbl.Text = label
+	lbl.TextSize = 13
+	lbl.TextColor3 = C.Text
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.Parent = row
+
+	local track = Instance.new("Frame")
+	track.AnchorPoint = Vector2.new(1, 0.5)
+	track.Position = UDim2.new(1, -14, 0.5, 0)
+	track.Size = UDim2.new(0, 36, 0, 20)
+	track.BackgroundColor3 = C.Track
+	track.Parent = row
+	addCorner(track, 10)
+
+	local KNOB_SIZE, KNOB_PAD = 14, 3
+	local knob = Instance.new("Frame")
+	knob.Size = UDim2.new(0, KNOB_SIZE, 0, KNOB_SIZE)
+	knob.Position = UDim2.new(0, KNOB_PAD, 0, KNOB_PAD)
+	knob.BackgroundColor3 = C.Knob
+	knob.Parent = track
+	addCorner(knob, 7)
+
+	local function setVisual(on, animate)
+		local bg = on and C.Green or C.Track
+		local pos = on and UDim2.new(0, 19, 0, KNOB_PAD) or UDim2.new(0, KNOB_PAD, 0, KNOB_PAD)
+		local col = on and C.Text or C.TextDim
+		if animate then
+			tw(track, { BackgroundColor3 = bg })
+			tw(knob,  { Position = pos })
+			tw(lbl,   { TextColor3 = col })
+		else
+			track.BackgroundColor3 = bg
+			knob.Position = pos
+			lbl.TextColor3 = col
+		end
+	end
+
+	row.MouseEnter:Connect(function() tw(rowStroke, { Transparency = 0 }) end)
+	row.MouseLeave:Connect(function() tw(rowStroke, { Transparency = 0.5 }) end)
+	row.MouseButton1Click:Connect(function()
+		Config[configKey] = not Config[configKey]
+		saveConfig()
+		setVisual(Config[configKey], true)
+	end)
+	setVisual(Config[configKey], false)
+end
+
 local function createInput(parentPage, label, defaultValue, onChanged)
 	local row = Instance.new("Frame")
 	row.Size = UDim2.new(1, 0, 0, 40)
@@ -1189,7 +1339,10 @@ createToggle(pageMain, "Auto Best Zone", "AutoTeleportBestZone")
 createSection(pageMain, "Settings")
 createInput(pageMain, "Zone interval (s)", Config.AutoBestZoneInterval, function(v)
 	Config.AutoBestZoneInterval = math.max(1, tonumber(v) or 30)
+	saveConfig()
 end)
+createConfigToggle(pageMain, "Strict Best Zone",   "StrictBestZone")
+createConfigToggle(pageMain, "Anti-Detect Jitter", "AntiDetectJitter")
 
 createSection(pageUpgrades, "Progression")
 createToggle(pageUpgrades, "MEGA Auto Upgrade", "AutoUpgrade")
@@ -1200,15 +1353,22 @@ createToggle(pageUpgrades, "Auto Feed Slimes", "AutoFeed")
 createSection(pageUpgrades, "Settings")
 createInput(pageUpgrades, "Upgrade interval (s)", Config.AutoUpgradeInterval, function(v)
 	Config.AutoUpgradeInterval = math.max(1, tonumber(v) or 30)
+	saveConfig()
+end)
+createInput(pageUpgrades, "Feed reserve", Config.FeedReserve, function(v)
+	Config.FeedReserve = math.max(0, tonumber(v) or 0)
+	saveConfig()
 end)
 
 createSection(pageWebhook, "Discord Webhook")
 createToggle(pageWebhook, "Webhook", "Webhook")
 createInput(pageWebhook, "Webhook URL", Config.WebhookUrl, function(v)
 	Config.WebhookUrl = tostring(v or "")
+	saveConfig()
 end)
 createInput(pageWebhook, "Interval (s)", Config.WebhookInterval, function(v)
 	Config.WebhookInterval = math.max(1, tonumber(v) or 30)
+	saveConfig()
 end)
 createSection(pageWebhook, "Actions")
 createActionButton(pageWebhook, "Send test message", function()
@@ -1224,7 +1384,7 @@ createActionButton(pageWebhook, "Send test message", function()
 end)
 
 setActiveTab("Main")
-_G.RefreshFooterUI()
+NS.RefreshFooterUI()
 
 -- ===== DRAG & ALT HIDE LOGIC =====
 
@@ -1396,12 +1556,15 @@ end
 task.spawn(function()
 	while screenGui.Parent do
 		task.wait(2)
-		_G.RefreshFooterUI()
+		NS.RefreshFooterUI()
 	end
 end)
 
-if isMobile then
-	Notify("AbramSliem", "Loaded. Tap the AS button to toggle menu.")
-else
-	Notify("AbramSliem", "Loaded. Press ALT or click AS icon.")
+local loadMsg = ("v%s loaded. "):format(VERSION) .. (isMobile and "Tap AS button to toggle menu." or "Press ALT or click AS icon.")
+Notify("AbramSliem", loadMsg)
+if not httpRequest then
+	Notify("AbramSliem", "Note: executor lacks HTTP API — Discord webhook disabled.")
+end
+if not hasFS then
+	Notify("AbramSliem", "Note: executor lacks file I/O — config will not persist.")
 end
