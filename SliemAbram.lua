@@ -334,53 +334,49 @@ local function Upgrade()
 end
 
 -- [AUTO FEED] Кормит слаймов фруктами поровну
-local FOOD_NAMES = {"apple", "carrot", "cherries", "grapes", "banana", "watermelon", "pizza", "chicken", "drumstick"}
-
 local function FeedSlimes()
 	local consumablesList = safeFind(localPlayer, "PlayerGui", "Root", "Inventory",
 		"PageItemsContent", "ItemsInventoryPage", "DefaultItemsView",
 		"ConsumablesPanel", "ConsumablesList")
 	if not consumablesList then return end
 
-	-- Собираем еду и количество
-	local foods = {}
-	for _, foodName in ipairs(FOOD_NAMES) do
-		local button = consumablesList:FindFirstChild(foodName .. "ItemButton")
-		if button then
-			local amountLabel = button:FindFirstChild("Amount")
-			if amountLabel then
-				local amount = tonumber(amountLabel.Text) or 0
-				if amount > 0 then
-					table.insert(foods, {name = foodName, amount = amount})
-				end
+	-- 1. Собираем всю еду из GUI
+	local foodInventory = {}
+	for _, button in pairs(consumablesList:GetChildren()) do
+		if button:IsA("GuiObject") and button:FindFirstChild("Amount") then
+			local foodType = button.Name:gsub("ItemButton", ""):lower()
+			local amountText = button.Amount.Text:gsub("x", "")
+			local amount = tonumber(amountText) or 0
+			if amount > 0 then
+				foodInventory[foodType] = amount
 			end
 		end
 	end
-	if #foods == 0 then return end
 
-	-- Находим экипированных слаймов
+	-- 2. Собираем UUID экипированных слаймов
 	local equippedFrame = safeFind(localPlayer, "PlayerGui", "Root", "Inventory",
 		"PageInventoryContent", "SlimesPage", "EquippedSlimesFrame")
 	if not equippedFrame then return end
 
-	local slimeIds = {}
-	for _, child in ipairs(equippedFrame:GetChildren()) do
-		if child:IsA("GuiObject") and child.Name:find("^%.") then
-			table.insert(slimeIds, child.Name)
+	local equippedUUIDs = {}
+	for _, slimeFrame in pairs(equippedFrame:GetChildren()) do
+		if slimeFrame:IsA("GuiObject") and (slimeFrame.Name:sub(1, 1) == "." or #slimeFrame.Name > 20) then
+			table.insert(equippedUUIDs, slimeFrame.Name)
 		end
 	end
-	if #slimeIds == 0 then return end
 
-	-- Кормим каждого слайма каждым видом еды поровну
-	for _, food in ipairs(foods) do
-		local perSlime = math.floor(food.amount / #slimeIds)
-		if perSlime < 1 then perSlime = 1 end
-		for _, slimeId in ipairs(slimeIds) do
-			if food.amount <= 0 then break end
-			local give = math.min(perSlime, food.amount)
-			callRemote("InventoryService", "requestUseFood", food.name, slimeId, give)
-			food.amount = food.amount - give
-			task.wait(0.05)
+	local slimeCount = #equippedUUIDs
+	if slimeCount == 0 then return end
+
+	-- 3. Распределяем и кормим
+	for foodType, totalAmount in pairs(foodInventory) do
+		local perSlime = math.floor(totalAmount / slimeCount)
+		if perSlime > 0 then
+			for _, uuid in pairs(equippedUUIDs) do
+				task.spawn(function()
+					callRemote("InventoryService", "requestUseFood", foodType, uuid, perSlime)
+				end)
+			end
 		end
 	end
 end
