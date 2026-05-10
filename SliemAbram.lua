@@ -230,13 +230,16 @@ local function Upgrade()
 	end
 end
 
--- Roll with safe fallback
+-- [FIXED ROLL]
 local function Roll()
 	callRemote("RollService", "requestRoll")
 end
 
 local function getRollCooldown()
-	local label = safeFind(localPlayer, "PlayerGui", "Root", "BottomBarStats", "StatsList", "RollSpeedStat", "Content", "Value", "TextLabel")
+	local statsList = safeFind(localPlayer, "PlayerGui", "Root", "BottomBarStats", "StatsList")
+	local rollSpeedStat = statsList and (statsList:FindFirstChild("RollSpeedStat") or statsList:FindFirstChild("RollSpeed"))
+	local label = rollSpeedStat and safeFind(rollSpeedStat, "Content", "Value", "TextLabel")
+	
 	if label then
 		local num = tonumber(label.Text:match("[%d%.]+"))
 		return num or 0.5
@@ -267,22 +270,34 @@ local function Teleport(worldNum)
 	callRemote("ZonesService", "requestTeleportZone", worldNum)
 end
 
+-- [FIXED BEST ZONE]
 local function TeleportBestZone()
 	local zonesFolder = workspace:FindFirstChild("Zones")
 	if not zonesFolder then return end
-	local best = 0
-	for _, zone in ipairs(zonesFolder:GetChildren()) do
-		local gate = safeFind(zone, "Gate")
-		if gate then
-			local blocker = gate:FindFirstChild("ClientGateBlocker_" .. zone.Name)
-			if blocker and not blocker.CanCollide then
-				local num = tonumber(zone.Name)
-				if num and num > best then best = num end
+	local best = 1
+	
+	local sortedZones = zonesFolder:GetChildren()
+	table.sort(sortedZones, function(a, b)
+		local numA = tonumber(a.Name:match("%d+")) or 0
+		local numB = tonumber(b.Name:match("%d+")) or 0
+		return numA < numB
+	end)
+
+	for _, zone in ipairs(sortedZones) do
+		local zoneNum = tonumber(zone.Name:match("%d+"))
+		if zoneNum then
+			local gate = zone:FindFirstChild("Gate")
+			local blocker = gate and (gate:FindFirstChild("ClientGateBlocker_" .. zone.Name) or gate:FindFirstChild("GateBlocker"))
+			if not blocker or blocker.CanCollide == false or blocker.Transparency >= 1 then
+				best = zoneNum
+			else
+				break
 			end
 		end
 	end
+	
 	if best > 0 then
-		Teleport(best + 1)
+		Teleport(best)
 	end
 end
 
