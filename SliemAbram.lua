@@ -345,7 +345,15 @@ local function FeedSlimes()
 	for _, button in pairs(consumablesList:GetChildren()) do
 		if button:IsA("GuiObject") and button:FindFirstChild("Amount") then
 			local foodType = button.Name:gsub("ItemButton", ""):lower()
-			local amountText = button.Amount.Text:gsub("x", "")
+			local amountObj = button.Amount
+			local amountText = ""
+			if amountObj:IsA("TextLabel") then
+				amountText = amountObj.Text
+			else
+				local label = amountObj:FindFirstChildWhichIsA("TextLabel")
+				if label then amountText = label.Text end
+			end
+			amountText = amountText:gsub("x", "")
 			local amount = tonumber(amountText) or 0
 			if amount > 0 then
 				foodInventory[foodType] = amount
