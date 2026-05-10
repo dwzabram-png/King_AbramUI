@@ -42,11 +42,13 @@ local State = {
 	AutoBuyZone = false,
 	AutoRebirth = false,
 	AutoEquipBest = false,
+	AutoFeed = false,
 	Webhook = false
 }
 local Config = {
 	AutoBestZoneInterval = 15,
 	AutoUpgradeInterval = 30,
+	AutoFeedInterval = 30,
 	WebhookUrl = "",
 	WebhookInterval = 30
 }
@@ -331,6 +333,58 @@ local function Upgrade()
 	end
 end
 
+-- [AUTO FEED] Кормит слаймов фруктами поровну
+local FOOD_NAMES = {"apple", "carrot", "cherries", "grapes", "banana", "watermelon", "pizza", "chicken", "drumstick"}
+
+local function FeedSlimes()
+	local consumablesList = safeFind(localPlayer, "PlayerGui", "Root", "Inventory",
+		"PageItemsContent", "ItemsInventoryPage", "DefaultItemsView",
+		"ConsumablesPanel", "ConsumablesList")
+	if not consumablesList then return end
+
+	-- Собираем еду и количество
+	local foods = {}
+	for _, foodName in ipairs(FOOD_NAMES) do
+		local button = consumablesList:FindFirstChild(foodName .. "ItemButton")
+		if button then
+			local amountLabel = button:FindFirstChild("Amount")
+			if amountLabel then
+				local amount = tonumber(amountLabel.Text) or 0
+				if amount > 0 then
+					table.insert(foods, {name = foodName, amount = amount})
+				end
+			end
+		end
+	end
+	if #foods == 0 then return end
+
+	-- Находим экипированных слаймов
+	local equippedFrame = safeFind(localPlayer, "PlayerGui", "Root", "Inventory",
+		"PageInventoryContent", "SlimesPage", "EquippedSlimesFrame")
+	if not equippedFrame then return end
+
+	local slimeIds = {}
+	for _, child in ipairs(equippedFrame:GetChildren()) do
+		if child:IsA("GuiObject") and child.Name:find("^%.") then
+			table.insert(slimeIds, child.Name)
+		end
+	end
+	if #slimeIds == 0 then return end
+
+	-- Кормим каждого слайма каждым видом еды поровну
+	for _, food in ipairs(foods) do
+		local perSlime = math.floor(food.amount / #slimeIds)
+		if perSlime < 1 then perSlime = 1 end
+		for _, slimeId in ipairs(slimeIds) do
+			if food.amount <= 0 then break end
+			local give = math.min(perSlime, food.amount)
+			callRemote("InventoryService", "requestUseFood", food.name, slimeId, give)
+			food.amount = food.amount - give
+			task.wait(0.05)
+		end
+	end
+end
+
 -- [FIXED ROLL]
 local function Roll()
 	callRemote("RollService", "requestRoll")
@@ -429,6 +483,11 @@ local FEATURES = {
 		kind = "task_loop",
 		getInterval = function() return 10 end,
 		action = function() callRemote("InventoryService", "requestEquipBest") end
+	},
+	AutoFeed = {
+		kind = "task_loop",
+		getInterval = function() return Config.AutoFeedInterval end,
+		action = function() FeedSlimes() end
 	},
 	Webhook = {
 		kind = "task_loop",
@@ -1014,6 +1073,7 @@ createToggle(pageUpgrades, "MEGA Auto Upgrade", "AutoUpgrade")
 createToggle(pageUpgrades, "Auto Buy Zone",   "AutoBuyZone")
 createToggle(pageUpgrades, "Auto Rebirth",    "AutoRebirth")
 createToggle(pageUpgrades, "Auto Equip Best", "AutoEquipBest")
+createToggle(pageUpgrades, "Auto Feed Slimes", "AutoFeed")
 createSection(pageUpgrades, "Settings")
 createInput(pageUpgrades, "Upgrade interval (s)", Config.AutoUpgradeInterval, function(v)
 	Config.AutoUpgradeInterval = math.max(1, tonumber(v) or 30)
