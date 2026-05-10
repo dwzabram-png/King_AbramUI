@@ -273,64 +273,61 @@ local function safeFind(root, ...)
 	return current
 end
 
--- [UPGRADE SYSTEM] Полный список всех апгрейдов
-local UPGRADES = {
-	-- === MAIN (Основные) ===
-	{name = "luck", maxLevel = 15},
-	{name = "rollSpeed", maxLevel = 6},
-	{name = "goopDropRate", maxLevel = 6},
-	{name = "cloverRolls", maxLevel = 5},
-	{name = "bonusRolls", maxLevel = 3},
-	{name = "extraRollColumn", maxLevel = 3},
-	{name = "enemyCount", maxLevel = 7},
-	{name = "slots", maxLevel = 6},
-	{name = "targetRange", maxLevel = 3},
-	{name = "friendLuck", maxLevel = 6},
-	{name = "friendBoost", maxLevel = 4},
-	{name = "friendLuckBoost", maxLevel = 6},
-	{name = "goldenRolls", maxLevel = 4},
-	{name = "diamondRolls", maxLevel = 4},
-	{name = "voidRolls", maxLevel = 4},
-	-- Мутации (1 уровень)
-	{name = "bigSlimes", maxLevel = 1},
-	{name = "hugeSlimes", maxLevel = 1},
-	{name = "shinySlimes", maxLevel = 1},
-	{name = "invertedSlimes", maxLevel = 1},
+-- [UPGRADE SYSTEM] Точные ID всех апгрейдов
+-- Генерирует список ID: name..from, name..(from+1), ..., name..to
+local function range(name, from, to)
+	local t = {}
+	for i = from, to do table.insert(t, name .. i) end
+	return t
+end
 
-	-- === LOOT (Добыча) ===
-	{name = "coinIncome", maxLevel = 13},
-	{name = "overkill", maxLevel = 6},
-	{name = "offlineLoot", maxLevel = 5},
-	{name = "enemySpawnSpeed", maxLevel = 3},
-	-- Предметы лута (1 уровень каждый)
-	{name = "apple", maxLevel = 1},
-	{name = "carrot", maxLevel = 1},
-	{name = "cherries", maxLevel = 1},
-	{name = "grapes", maxLevel = 1},
-	{name = "banana", maxLevel = 1},
-	{name = "watermelon", maxLevel = 1},
-	{name = "pizza", maxLevel = 1},
-	{name = "chicken", maxLevel = 1},
-	{name = "drumstick", maxLevel = 1},
-	-- Бусты лута (1 уровень каждый)
-	{name = "luckBoost", maxLevel = 1},
-	{name = "currencyBoost", maxLevel = 1},
-	{name = "rollSpeedBoost", maxLevel = 1},
-	{name = "ultraLuckBoost", maxLevel = 1},
+-- Все апгрейды (точные ID из игры)
+local ALL_UPGRADES = {}
+local function add(list) for _, v in ipairs(list) do table.insert(ALL_UPGRADES, v) end end
 
-	-- === PLAYER (Игрок) ===
-	{name = "walkSpeed", maxLevel = 3},
-	{name = "magnet", maxLevel = 3},
-	{name = "teleporter", maxLevel = 1},
-}
+-- === MAIN ===
+add(range("luck", 1, 15))
+add(range("rollSpeed", 1, 6))
+add(range("goopDropRate", 1, 6))
+add(range("cloverRolls", 1, 5))
+add(range("bonusRolls", 1, 3))
+add(range("extraRollColumn", 1, 3))
+add(range("enemyCount", 2, 7))
+add(range("slots", 2, 6))
+add(range("slimeTargetRange", 1, 3))
+add(range("friendLuck", 1, 6))
+add(range("friendBoost", 1, 4))
+add(range("friendLuckBoost", 1, 4))
+-- Прокрутки (первый без цифры, остальные с 2)
+add({"goldenRolls", "goldenRolls2", "goldenRolls3", "goldenRolls4"})
+add({"diamondRolls", "diamondRolls2", "diamondRolls3", "diamondRolls4"})
+add({"voidRolls", "voidRolls2", "voidRolls3", "voidRolls4"})
+-- Мутации слаймов
+add({"bigSlimes", "hugeSlimes", "shinySlimes", "invertedSlimes"})
+-- Мутации врагов
+add({"bigEnemies", "hugeEnemies", "shinyEnemies", "invertedEnemies"})
+add({"bigEnemyChance1", "shinyEnemyChance1", "hugeEnemyChance1", "invertedEnemyChance1"})
+
+-- === LOOT ===
+add(range("coinIncome", 1, 13))
+add(range("overkill", 1, 6))
+add(range("offlineLootAmount", 1, 5))
+add(range("enemySpawnSpeed", 1, 3))
+-- Предметы
+add({"lootApple", "lootCarrot", "lootCherries", "lootGrapes", "lootBanana",
+	"lootWatermelon", "lootPizza", "lootChicken", "lootDrumstick"})
+-- Бусты
+add({"lootLuck", "lootCurrency", "lootRollSpeed", "lootUltraLuck"})
+
+-- === PLAYER ===
+add(range("walkSpeed", 1, 3))
+add(range("magnet", 1, 3))
+add({"teleporter"})
 
 local function Upgrade()
-	for _, upg in ipairs(UPGRADES) do
-		for level = 1, upg.maxLevel do
-			local id = upg.name .. level
-			callRemote("UpgradeService", "requestUnlock", id)
-			task.wait(0.05)
-		end
+	for _, id in ipairs(ALL_UPGRADES) do
+		callRemote("UpgradeService", "requestUnlock", id)
+		task.wait(0.05)
 	end
 end
 
