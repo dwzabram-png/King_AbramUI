@@ -119,14 +119,36 @@ local function TeleportBestZone()
 
 	for _, zone in ipairs(sortedZones) do
 		local zoneNum = tonumber(zone.Name:match("%d+"))
-		if zoneNum then
-			local gate = zone:FindFirstChild("Gate")
-			local blocker = gate and (gate:FindFirstChild("ClientGateBlocker_" .. zone.Name) or gate:FindFirstChild("GateBlocker"))
+		if not zoneNum then continue end
+		
+		local gate = zone:FindFirstChild("Gate")
+		local isOpened = false
+		
+		if gate then
+			-- Проверяем оригинальный блокировщик
+			local blocker = gate:FindFirstChild("ClientGateBlocker_" .. zone.Name) or gate:FindFirstChild("GateBlocker")
 			if not blocker or blocker.CanCollide == false or blocker.Transparency >= 1 then
-				best = zoneNum
+				isOpened = true
 			else
-				break
+				-- [SPECIAL CHECK] Проверяем любой другой объект (например, "Back" в 14 зоне)
+				for _, child in ipairs(gate:GetDescendants()) do
+					if child:IsA("BasePart") and child.CanCollide == false then
+						isOpened = true
+						break
+					end
+				end
 			end
+		else
+			-- Если папки Gate нет, зона открыта по умолчанию
+			isOpened = true
+		end
+
+		if isOpened then
+			best = zoneNum
+		else
+			-- [PLUS ONE LOGIC] Пробуем прыгнуть в следующую (закрытую) зону
+			best = zoneNum
+			break
 		end
 	end
 	
@@ -365,14 +387,36 @@ local function TeleportBestZone()
 
 	for _, zone in ipairs(sortedZones) do
 		local zoneNum = tonumber(zone.Name:match("%d+"))
-		if zoneNum then
-			local gate = zone:FindFirstChild("Gate")
-			local blocker = gate and (gate:FindFirstChild("ClientGateBlocker_" .. zone.Name) or gate:FindFirstChild("GateBlocker"))
+		if not zoneNum then continue end
+		
+		local gate = zone:FindFirstChild("Gate")
+		local isOpened = false
+		
+		if gate then
+			-- Проверяем оригинальный блокировщик
+			local blocker = gate:FindFirstChild("ClientGateBlocker_" .. zone.Name) or gate:FindFirstChild("GateBlocker")
 			if not blocker or blocker.CanCollide == false or blocker.Transparency >= 1 then
-				best = zoneNum
+				isOpened = true
 			else
-				break
+				-- [SPECIAL CHECK] Проверяем любой другой объект (например, "Back" в 14 зоне)
+				for _, child in ipairs(gate:GetDescendants()) do
+					if child:IsA("BasePart") and child.CanCollide == false then
+						isOpened = true
+						break
+					end
+				end
 			end
+		else
+			-- Если папки Gate нет, зона открыта по умолчанию
+			isOpened = true
+		end
+
+		if isOpened then
+			best = zoneNum
+		else
+			-- [PLUS ONE LOGIC] Пробуем прыгнуть в следующую (закрытую) зону
+			best = zoneNum
+			break
 		end
 	end
 	
