@@ -753,7 +753,7 @@ kbdLabel.Parent = kbdChip
 local TABS_TOP = TITLE_H + 10
 local TAB_H = 32
 local TABS_PAD = 12
-local tabNames = { "Main", "Upgrades", "Webhook" }
+local tabNames = { "Main", "Upgrades", "Webhook", "Rating" }
 
 local tabsBar = Instance.new("Frame")
 tabsBar.Size = UDim2.new(1, -TABS_PAD * 2, 0, TAB_H)
@@ -781,7 +781,7 @@ end
 
 for i, tabName in ipairs(tabNames) do
 	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(1/3, -4, 1, 0)
+	btn.Size = UDim2.new(1/#tabNames, -4, 1, 0)
 	btn.LayoutOrder = i
 	btn.BackgroundColor3 = C.Surface
 	btn.AutoButtonColor = false
@@ -833,6 +833,7 @@ end
 local pageMain = createPage("Main")
 local pageUpgrades = createPage("Upgrades")
 local pageWebhook = createPage("Webhook")
+local pageRating = createPage("Rating")
 
 -- ===== FOOTER =====
 local footer = Instance.new("Frame")
@@ -1149,6 +1150,179 @@ createActionButton(pageWebhook, "Send test message", function()
 	})
 	Notify("Webhook", ok and "Test sent" or "Failed to send")
 end)
+
+-- ===== RATING SYSTEM (1-10) =====
+do
+	local selectedRating = 0
+	local ratingButtons = {}
+
+	createSection(pageRating, "Rate SlimeAbram")
+
+	-- Description label
+	local descRow = Instance.new("Frame")
+	descRow.Size = UDim2.new(1, 0, 0, 36)
+	descRow.BackgroundColor3 = C.Surface
+	descRow.BorderSizePixel = 0
+	descRow.Parent = pageRating
+	addCorner(descRow, 8)
+	local descStroke = addStroke(descRow, C.Border, 1)
+	descStroke.Transparency = 0.5
+
+	local descLbl = Instance.new("TextLabel")
+	descLbl.Size = UDim2.new(1, -28, 1, 0)
+	descLbl.Position = UDim2.new(0, 14, 0, 0)
+	descLbl.BackgroundTransparency = 1
+	descLbl.Font = Enum.Font.GothamMedium
+	descLbl.Text = "Tap a number to rate this script"
+	descLbl.TextSize = 12
+	descLbl.TextColor3 = C.TextDim
+	descLbl.TextXAlignment = Enum.TextXAlignment.Left
+	descLbl.Parent = descRow
+
+	-- Rating buttons container
+	local ratingRow = Instance.new("Frame")
+	ratingRow.Size = UDim2.new(1, 0, 0, 48)
+	ratingRow.BackgroundTransparency = 1
+	ratingRow.Parent = pageRating
+
+	local ratingLayout = Instance.new("UIListLayout")
+	ratingLayout.FillDirection = Enum.FillDirection.Horizontal
+	ratingLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	ratingLayout.Padding = UDim.new(0, 4)
+	ratingLayout.Parent = ratingRow
+
+	local function updateRatingVisuals()
+		for i, btn in ipairs(ratingButtons) do
+			local active = i <= selectedRating
+			local targetBg = active and C.Accent or C.Surface
+			local targetText = active and Color3.fromRGB(255, 255, 255) or C.TextMuted
+			tw(btn, { BackgroundColor3 = targetBg })
+			tw(btn.Label, { TextColor3 = targetText })
+		end
+	end
+
+	for i = 1, 10 do
+		local btn = Instance.new("TextButton")
+		btn.Size = UDim2.new(0, 28, 0, 40)
+		btn.BackgroundColor3 = C.Surface
+		btn.AutoButtonColor = false
+		btn.Text = ""
+		btn.LayoutOrder = i
+		btn.Parent = ratingRow
+		addCorner(btn, 6)
+		addStroke(btn, C.Border, 1)
+
+		local lbl = Instance.new("TextLabel")
+		lbl.Name = "Label"
+		lbl.Size = UDim2.new(1, 0, 1, 0)
+		lbl.BackgroundTransparency = 1
+		lbl.Font = Enum.Font.GothamBold
+		lbl.Text = tostring(i)
+		lbl.TextSize = 14
+		lbl.TextColor3 = C.TextMuted
+		lbl.Parent = btn
+
+		btn.MouseEnter:Connect(function() tw(btn, { BackgroundColor3 = C.SurfaceHi }) end)
+		btn.MouseLeave:Connect(function()
+			local active = i <= selectedRating
+			tw(btn, { BackgroundColor3 = active and C.Accent or C.Surface })
+		end)
+
+		btn.MouseButton1Click:Connect(function()
+			if selectedRating == i then
+				selectedRating = 0
+			else
+				selectedRating = i
+			end
+			updateRatingVisuals()
+		end)
+
+		ratingButtons[i] = btn
+	end
+
+	-- Result display
+	createSection(pageRating, "Your Rating")
+
+	local resultRow = Instance.new("Frame")
+	resultRow.Size = UDim2.new(1, 0, 0, 52)
+	resultRow.BackgroundColor3 = C.Surface
+	resultRow.BorderSizePixel = 0
+	resultRow.Parent = pageRating
+	addCorner(resultRow, 8)
+	addStroke(resultRow, C.Border, 1)
+
+	local starIcon = Instance.new("TextLabel")
+	starIcon.Size = UDim2.new(0, 30, 1, 0)
+	starIcon.Position = UDim2.new(0, 14, 0, 0)
+	starIcon.BackgroundTransparency = 1
+	starIcon.Font = Enum.Font.GothamBold
+	starIcon.Text = "★"
+	starIcon.TextSize = 22
+	starIcon.TextColor3 = C.Accent
+	starIcon.Parent = resultRow
+
+	local resultLbl = Instance.new("TextLabel")
+	resultLbl.Name = "RatingResult"
+	resultLbl.Size = UDim2.new(1, -60, 1, 0)
+	resultLbl.Position = UDim2.new(0, 48, 0, 0)
+	resultLbl.BackgroundTransparency = 1
+	resultLbl.Font = Enum.Font.GothamBold
+	resultLbl.Text = "No rating yet"
+	resultLbl.TextSize = 16
+	resultLbl.TextColor3 = C.TextDim
+	resultLbl.TextXAlignment = Enum.TextXAlignment.Left
+	resultLbl.Parent = resultRow
+
+	local origUpdate = updateRatingVisuals
+	updateRatingVisuals = function()
+		origUpdate()
+		if selectedRating > 0 then
+			resultLbl.Text = selectedRating .. " / 10"
+			resultLbl.TextColor3 = C.Text
+			Notify("Rating", "You rated SlimeAbram: " .. selectedRating .. "/10")
+		else
+			resultLbl.Text = "No rating yet"
+			resultLbl.TextColor3 = C.TextDim
+		end
+	end
+
+	-- Rating bar visual
+	createSection(pageRating, "Rating Bar")
+
+	local barRow = Instance.new("Frame")
+	barRow.Size = UDim2.new(1, 0, 0, 28)
+	barRow.BackgroundColor3 = C.Surface
+	barRow.ClipsDescendants = true
+	barRow.Parent = pageRating
+	addCorner(barRow, 8)
+	addStroke(barRow, C.Border, 1)
+
+	local barFill = Instance.new("Frame")
+	barFill.Name = "BarFill"
+	barFill.Size = UDim2.new(0, 0, 1, 0)
+	barFill.BackgroundColor3 = C.Accent
+	barFill.BorderSizePixel = 0
+	barFill.Parent = barRow
+	addCorner(barFill, 8)
+
+	local barLbl = Instance.new("TextLabel")
+	barLbl.Size = UDim2.new(1, 0, 1, 0)
+	barLbl.BackgroundTransparency = 1
+	barLbl.Font = Enum.Font.GothamBold
+	barLbl.Text = "0%"
+	barLbl.TextSize = 11
+	barLbl.TextColor3 = C.Text
+	barLbl.ZIndex = 2
+	barLbl.Parent = barRow
+
+	local origUpdate2 = updateRatingVisuals
+	updateRatingVisuals = function()
+		origUpdate2()
+		local pct = selectedRating / 10
+		tw(barFill, { Size = UDim2.new(pct, 0, 1, 0) })
+		barLbl.Text = math.floor(pct * 100) .. "%"
+	end
+end
 
 setActiveTab("Main")
 _G.RefreshFooterUI()
