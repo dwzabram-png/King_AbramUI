@@ -51,29 +51,39 @@ local Config = {
 	WebhookInterval = 30
 }
 
--- [FIXED] Динамический поиск Remotes (теперь не привязан к версии 0.3.1)
-local function getRemotesFolder()
+-- Динамический поиск Remotes (проверяет ВСЕ версии networker)
+local function getAllRemotesFolders()
+	local result = {}
 	local packages = ReplicatedStorage:FindFirstChild("Packages")
-	if not packages then return nil end
+	if not packages then return result end
 	local index = packages:FindFirstChild("_Index")
-	if not index then return nil end
+	if not index then return result end
 	for _, child in ipairs(index:GetChildren()) do
 		if child.Name:find("networker") then
-			local remotes = child:FindFirstChild("networker") and child.networker:FindFirstChild("_remotes")
-			if remotes then return remotes end
+			local networker = child:FindFirstChild("networker")
+			if networker then
+				local remotes = networker:FindFirstChild("_remotes")
+				if remotes then
+					table.insert(result, remotes)
+				end
+			end
 		end
+	end
+	return result
+end
+
+local function findRemoteService(serviceName)
+	local folders = getAllRemotesFolders()
+	for _, folder in ipairs(folders) do
+		local remote = folder:FindFirstChild(serviceName)
+		if remote then return remote end
 	end
 	return nil
 end
 
-local RemotesFolder = getRemotesFolder()
-
 local function callRemote(service, method, ...)
-	if not RemotesFolder then RemotesFolder = getRemotesFolder() end
-	if not RemotesFolder then return false, "Remote folder not found" end
-	
-	local remote = RemotesFolder:FindFirstChild(service)
-	if not remote then return false, "Remote service not found" end
+	local remote = findRemoteService(service)
+	if not remote then return false, "Service not found" end
 	local func = remote:FindFirstChild("RemoteFunction")
 	if not func then return false, "RemoteFunction not found" end
 	
@@ -102,46 +112,7 @@ end
 
 -- Teleport
 local function Teleport(worldNum)
-	local ok = callRemote("ZonesService", "requestTeleportZone", worldNum)
-	if ok then return end
-	
-	-- Fallback: CFrame телепорт к зоне
-	if not clientHRP then updateCharacter() end
-	if not clientHRP then return end
-	
-	local zonesFolder = workspace:FindFirstChild("Zones")
-	if not zonesFolder then return end
-	
-	local targetZone = nil
-	for _, zone in ipairs(zonesFolder:GetChildren()) do
-		local num = tonumber(zone.Name:match("%d+"))
-		if num == worldNum then
-			targetZone = zone
-			break
-		end
-	end
-	if not targetZone then return end
-	
-	local target = nil
-	for _, name in ipairs({"SpawnLocation", "Spawn", "SpawnPoint", "TeleportPoint", "Start"}) do
-		target = targetZone:FindFirstChild(name, true)
-		if target and target:IsA("BasePart") then break end
-		target = nil
-	end
-	if not target then
-		for _, child in ipairs(targetZone:GetDescendants()) do
-			if child:IsA("BasePart") and not child:IsDescendantOf(targetZone:FindFirstChild("Gate") or targetZone) then
-				target = child
-				break
-			end
-		end
-	end
-	if not target then
-		target = targetZone:FindFirstChildWhichIsA("BasePart", true)
-	end
-	if target then
-		clientHRP.CFrame = CFrame.new(target.Position + Vector3.new(0, 5, 0))
-	end
+	callRemote("ZonesService", "requestTeleportZone", worldNum)
 end
 
 -- [FIXED BEST ZONE]
