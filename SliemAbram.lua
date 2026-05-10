@@ -287,6 +287,7 @@ local UPGRADES = {
 	{name = "targetRange", maxLevel = 3},
 	{name = "friendLuck", maxLevel = 6},
 	{name = "friendBoost", maxLevel = 4},
+	{name = "friendLuckBoost", maxLevel = 6},
 	{name = "goldenRolls", maxLevel = 4},
 	{name = "diamondRolls", maxLevel = 4},
 	{name = "voidRolls", maxLevel = 4},
