@@ -61,8 +61,7 @@ local State = {
 	AutoEquipBest = false,
 	AutoFeed = false,
 	Webhook = false,
-	FPSBoost = false,
-	LowEndMode = false,
+	ZeroLoad = false,
 }
 local DEFAULT_CONFIG = {
 	AutoBestZoneInterval = 15,
@@ -239,7 +238,10 @@ local function getGameplayFolder()
 	return nil
 end
 
--- ===== FPS BOOST / LOW-END MODE =====
+-- ===== ZERO LOAD MODE =====
+-- Однокнопочный «снять всю нагрузку» — всё агрессивное в одном режиме.
+-- Некоторые изменения необратимы в пределах сессии (Destroy Decal/Texture, понижение
+-- QualityLevel, FPS cap) — полный откат только через реджойн.
 local Lighting = game:GetService("Lighting")
 local POSTFX_CLASSES = { "BloomEffect", "BlurEffect", "ColorCorrectionEffect", "DepthOfFieldEffect", "SunRaysEffect" }
 local EFFECT_CLASSES = { "ParticleEmitter", "Beam", "Trail", "Smoke", "Fire", "Sparkles" }
@@ -251,9 +253,9 @@ local function isAnyClass(inst, classes)
 	return false
 end
 
-local FpsState = { applied = false, conn = nil, original = {} }
+local ZeroLoadState = { applied = false, conn = nil, original = {} }
 
-local function applyFpsBoostInstance(inst)
+local function applyZeroLoadInstance(inst)
 	if inst:IsA("BasePart") then
 		pcall(function()
 			inst.Material = Enum.Material.Plastic
@@ -264,79 +266,46 @@ local function applyFpsBoostInstance(inst)
 		pcall(function() inst.Enabled = false end)
 	elseif inst:IsA("Explosion") then
 		pcall(function() inst.BlastRadius = 0; inst.Visible = false end)
-	end
-end
-
-local function applyFpsBoost()
-	if FpsState.applied then return end
-	FpsState.applied = true
-
-	pcall(function()
-		FpsState.original.GlobalShadows = Lighting.GlobalShadows
-		FpsState.original.FogEnd       = Lighting.FogEnd
-		Lighting.GlobalShadows = false
-		Lighting.FogEnd = 1e9
-	end)
-	pcall(function()
-		local t = workspace.Terrain
-		FpsState.original.Decoration         = t.Decoration
-		FpsState.original.WaterWaveSize      = t.WaterWaveSize
-		FpsState.original.WaterWaveSpeed     = t.WaterWaveSpeed
-		FpsState.original.WaterReflectance   = t.WaterReflectance
-		t.Decoration       = false
-		t.WaterWaveSize    = 0
-		t.WaterWaveSpeed   = 0
-		t.WaterReflectance = 0
-	end)
-
-	for _, v in ipairs(workspace:GetDescendants()) do
-		applyFpsBoostInstance(v)
-	end
-	FpsState.conn = workspace.DescendantAdded:Connect(applyFpsBoostInstance)
-end
-
-local function disableFpsBoost()
-	if not FpsState.applied then return end
-	FpsState.applied = false
-	if FpsState.conn then pcall(function() FpsState.conn:Disconnect() end); FpsState.conn = nil end
-
-	pcall(function()
-		if FpsState.original.GlobalShadows ~= nil then Lighting.GlobalShadows = FpsState.original.GlobalShadows end
-		if FpsState.original.FogEnd ~= nil then Lighting.FogEnd = FpsState.original.FogEnd end
-	end)
-	pcall(function()
-		local t = workspace.Terrain
-		if FpsState.original.Decoration ~= nil then t.Decoration = FpsState.original.Decoration end
-		if FpsState.original.WaterWaveSize ~= nil then t.WaterWaveSize = FpsState.original.WaterWaveSize end
-		if FpsState.original.WaterWaveSpeed ~= nil then t.WaterWaveSpeed = FpsState.original.WaterWaveSpeed end
-		if FpsState.original.WaterReflectance ~= nil then t.WaterReflectance = FpsState.original.WaterReflectance end
-	end)
-	FpsState.original = {}
-end
-
-local LowEndState = { applied = false, conn = nil }
-
-local function applyLowEndInstance(inst)
-	applyFpsBoostInstance(inst)
-	if inst:IsA("Decal") or inst:IsA("Texture") or inst:IsA("SurfaceAppearance") then
+	elseif inst:IsA("Decal") or inst:IsA("Texture") or inst:IsA("SurfaceAppearance") then
 		pcall(function() inst:Destroy() end)
 	elseif isAnyClass(inst, POSTFX_CLASSES) then
 		pcall(function() inst.Enabled = false end)
 	end
 end
 
-local function applyLowEndMode()
-	if LowEndState.applied then return end
-	LowEndState.applied = true
+local function applyZeroLoad()
+	if ZeroLoadState.applied then return end
+	ZeroLoadState.applied = true
 
-	applyFpsBoost()
-
+	-- Lighting: тени, туман, все PostFX
+	pcall(function()
+		ZeroLoadState.original.GlobalShadows = Lighting.GlobalShadows
+		ZeroLoadState.original.FogEnd        = Lighting.FogEnd
+		Lighting.GlobalShadows = false
+		Lighting.FogEnd = 1e9
+	end)
 	for _, fx in ipairs(Lighting:GetChildren()) do
 		if isAnyClass(fx, POSTFX_CLASSES) then
 			pcall(function() fx.Enabled = false end)
 		end
 	end
 
+	-- Terrain: декорация офф, вода плоская и прозрачная
+	pcall(function()
+		local t = workspace.Terrain
+		ZeroLoadState.original.Decoration         = t.Decoration
+		ZeroLoadState.original.WaterWaveSize      = t.WaterWaveSize
+		ZeroLoadState.original.WaterWaveSpeed     = t.WaterWaveSpeed
+		ZeroLoadState.original.WaterReflectance   = t.WaterReflectance
+		ZeroLoadState.original.WaterTransparency  = t.WaterTransparency
+		t.Decoration       = false
+		t.WaterWaveSize    = 0
+		t.WaterWaveSpeed   = 0
+		t.WaterReflectance = 0
+		t.WaterTransparency = 1
+	end)
+
+	-- Rendering quality до минимума
 	pcall(function()
 		if type(sethiddenproperty) == "function" then
 			sethiddenproperty(settings().Rendering, "QualityLevel", 1)
@@ -345,19 +314,59 @@ local function applyLowEndMode()
 		end
 	end)
 
-	for _, v in ipairs(game:GetDescendants()) do
-		applyLowEndInstance(v)
-	end
-	LowEndState.conn = game.DescendantAdded:Connect(applyLowEndInstance)
+	-- FPS cap (если executor поддерживает)
+	pcall(function()
+		if type(setfpscap) == "function" then setfpscap(30) end
+	end)
 
-	Notify("Low-End", "Textures/decals removed — rejoin to restore visuals")
+	-- Спрятать чужие PlayerGui — они тоже жрут UI-render
+	pcall(function()
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= localPlayer then
+				local pg = p:FindFirstChild("PlayerGui")
+				if pg then
+					for _, gui in ipairs(pg:GetChildren()) do
+						if gui:IsA("ScreenGui") then
+							pcall(function() gui.Enabled = false end)
+						end
+					end
+				end
+			end
+		end
+	end)
+
+	-- Пройти по всей иерархии + подписаться на новые объекты
+	for _, v in ipairs(game:GetDescendants()) do
+		applyZeroLoadInstance(v)
+	end
+	ZeroLoadState.conn = game.DescendantAdded:Connect(applyZeroLoadInstance)
+
+	Notify("Zero Load", "Maximum perf mode — rejoin to restore visuals")
 end
 
-local function disableLowEndMode()
-	if not LowEndState.applied then return end
-	LowEndState.applied = false
-	if LowEndState.conn then pcall(function() LowEndState.conn:Disconnect() end); LowEndState.conn = nil end
-	-- Обратно включить PostFX/QualityLevel надёжно нельзя — нужен реджойн.
+local function disableZeroLoad()
+	if not ZeroLoadState.applied then return end
+	ZeroLoadState.applied = false
+	if ZeroLoadState.conn then
+		pcall(function() ZeroLoadState.conn:Disconnect() end)
+		ZeroLoadState.conn = nil
+	end
+
+	-- Частичный откат: восстанавливаем только Lighting и Terrain.
+	-- Удалённые Decal/Texture и PostFX/QualityLevel/FPS cap — только реджойн.
+	pcall(function()
+		if ZeroLoadState.original.GlobalShadows ~= nil then Lighting.GlobalShadows = ZeroLoadState.original.GlobalShadows end
+		if ZeroLoadState.original.FogEnd        ~= nil then Lighting.FogEnd        = ZeroLoadState.original.FogEnd end
+	end)
+	pcall(function()
+		local t = workspace.Terrain
+		if ZeroLoadState.original.Decoration        ~= nil then t.Decoration        = ZeroLoadState.original.Decoration end
+		if ZeroLoadState.original.WaterWaveSize     ~= nil then t.WaterWaveSize     = ZeroLoadState.original.WaterWaveSize end
+		if ZeroLoadState.original.WaterWaveSpeed    ~= nil then t.WaterWaveSpeed    = ZeroLoadState.original.WaterWaveSpeed end
+		if ZeroLoadState.original.WaterReflectance  ~= nil then t.WaterReflectance  = ZeroLoadState.original.WaterReflectance end
+		if ZeroLoadState.original.WaterTransparency ~= nil then t.WaterTransparency = ZeroLoadState.original.WaterTransparency end
+	end)
+	ZeroLoadState.original = {}
 end
 
 local function toggleNoclip(value)
@@ -803,15 +812,10 @@ local FEATURES = {
 			end
 		end
 	},
-	FPSBoost = {
+	ZeroLoad = {
 		kind = "custom",
-		onStart = applyFpsBoost,
-		onStop  = disableFpsBoost,
-	},
-	LowEndMode = {
-		kind = "custom",
-		onStart = applyLowEndMode,
-		onStop  = disableLowEndMode,
+		onStart = applyZeroLoad,
+		onStop  = disableZeroLoad,
 	},
 }
 
@@ -1472,8 +1476,7 @@ createToggle(pageMain, "Auto Potions",   "AutoPotions")
 createToggle(pageMain, "Auto Kill",      "AutoKill")
 createToggle(pageMain, "Auto Best Zone", "AutoTeleportBestZone")
 createSection(pageMain, "Performance")
-createToggle(pageMain, "FPS Boost",      "FPSBoost")
-createToggle(pageMain, "Ultra Low-End",  "LowEndMode")
+createToggle(pageMain, "Zero Load", "ZeroLoad")
 createSection(pageMain, "Settings")
 createInput(pageMain, "Zone interval (s)", Config.AutoBestZoneInterval, function(v)
 	Config.AutoBestZoneInterval = math.max(1, tonumber(v) or 30)
