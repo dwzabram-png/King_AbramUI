@@ -36,6 +36,7 @@ local State = {
 	AutoIndex = false,
 	AutoFarm = false,
 	AutoPotions = false,
+	AutoTeleportBestZone = false,
 	AutoKill = false,
 	AutoUpgrade = false,
 	AutoBuyZone = false,
@@ -186,16 +187,8 @@ local function toggleNoclip(value)
 	end
 end
 
-local lastZoneCheck = 0
 local function Kill()
 	if not clientHRP or not State.AutoKill then return end
-
-	-- [INTEGRATED] Auto Teleport to Best Zone
-	if os.clock() - lastZoneCheck >= (Config.AutoBestZoneInterval or 15) then
-		lastZoneCheck = os.clock()
-		task.spawn(TeleportBestZone)
-	end
-
 	local gameplay = getGameplayFolder()
 	local enemies = gameplay and gameplay:FindFirstChild("Enemies")
 	if not enemies then return end
@@ -367,64 +360,6 @@ local function ClaimIndex()
 	end
 end
 
--- Teleport
-local function Teleport(worldNum)
-	callRemote("ZonesService", "requestTeleportZone", worldNum)
-end
-
--- [FIXED BEST ZONE]
-local function TeleportBestZone()
-	local zonesFolder = workspace:FindFirstChild("Zones")
-	if not zonesFolder then return end
-	local best = 1
-	
-	local sortedZones = zonesFolder:GetChildren()
-	table.sort(sortedZones, function(a, b)
-		local numA = tonumber(a.Name:match("%d+")) or 0
-		local numB = tonumber(b.Name:match("%d+")) or 0
-		return numA < numB
-	end)
-
-	for _, zone in ipairs(sortedZones) do
-		local zoneNum = tonumber(zone.Name:match("%d+"))
-		if not zoneNum then continue end
-		
-		local gate = zone:FindFirstChild("Gate")
-		local isOpened = false
-		
-		if gate then
-			-- Проверяем оригинальный блокировщик
-			local blocker = gate:FindFirstChild("ClientGateBlocker_" .. zone.Name) or gate:FindFirstChild("GateBlocker")
-			if not blocker or blocker.CanCollide == false or blocker.Transparency >= 1 then
-				isOpened = true
-			else
-				-- [SPECIAL CHECK] Проверяем любой другой объект (например, "Back" в 14 зоне)
-				for _, child in ipairs(gate:GetDescendants()) do
-					if child:IsA("BasePart") and child.CanCollide == false then
-						isOpened = true
-						break
-					end
-				end
-			end
-		else
-			-- Если папки Gate нет, зона открыта по умолчанию
-			isOpened = true
-		end
-
-		if isOpened then
-			best = zoneNum
-		else
-			-- [PLUS ONE LOGIC] Пробуем прыгнуть в следующую (закрытую) зону
-			best = zoneNum
-			break
-		end
-	end
-	
-	if best > 0 then
-		Teleport(best)
-	end
-end
-
 -- ==================== FEATURE CONFIGURATION ====================
 local FEATURES = {
 	AutoRoll = {
@@ -458,6 +393,11 @@ local FEATURES = {
 		kind = "task_loop",
 		getInterval = function() return 3 end,
 		action = function() ConsumePotions() end
+	},
+	AutoTeleportBestZone = {
+		kind = "task_loop",
+		getInterval = function() return Config.AutoBestZoneInterval end,
+		action = function() TeleportBestZone() end
 	},
 	AutoKill = {
 		kind = "rbx_connection",
@@ -1057,6 +997,7 @@ createToggle(pageMain, "Auto Index",     "AutoIndex")
 createToggle(pageMain, "Auto Farm",      "AutoFarm")
 createToggle(pageMain, "Auto Potions",   "AutoPotions")
 createToggle(pageMain, "Auto Kill",      "AutoKill")
+createToggle(pageMain, "Auto Best Zone", "AutoTeleportBestZone")
 createSection(pageMain, "Settings")
 createInput(pageMain, "Zone interval (s)", Config.AutoBestZoneInterval, function(v)
 	Config.AutoBestZoneInterval = math.max(1, tonumber(v) or 30)
