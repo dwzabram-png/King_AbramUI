@@ -337,40 +337,44 @@ end
 local FOOD_TYPES = {"apple", "grapes", "banana", "pizza", "drumstick", "chicken", "watermelon", "cherries", "carrot"}
 
 local function FeedSlimes()
-	-- 1. Получаем UUID экипированных слаймов из data source
-	local getDataSource = require(ReplicatedStorage.Source.Core.UI.Sources.getDataSource)
-	local inventory = getDataSource("inventory")()
+	-- 1. Находим фрейм с надетыми слаймами
+	local equippedFrame = safeFind(localPlayer, "PlayerGui", "Root", "Inventory",
+		"PageInventoryContent", "SlimesPage", "EquippedSlimesFrame")
 
+	if not equippedFrame then return end
+
+	-- Собираем UUID прямо из имен объектов в UI
 	local equippedUUIDs = {}
-	if inventory and inventory.slimes then
-		for uuid, data in pairs(inventory.slimes) do
-			if data.equipped == true then
-				table.insert(equippedUUIDs, uuid)
-			end
+	for _, child in ipairs(equippedFrame:GetChildren()) do
+		if child:IsA("GuiObject") and (child.Name:sub(1, 1) == "." or #child.Name > 20) then
+			table.insert(equippedUUIDs, child.Name)
 		end
 	end
 
 	if #equippedUUIDs == 0 then return end
 
-	-- 2. Собираем еду из GUI
+	-- 2. Находим список еды
 	local consumablesList = safeFind(localPlayer, "PlayerGui", "Root", "Inventory",
 		"PageItemsContent", "ItemsInventoryPage", "DefaultItemsView",
 		"ConsumablesPanel", "ConsumablesList")
+
 	if not consumablesList then return end
 
-	-- 3. Раздаём каждый вид еды поровну
+	-- 3. Раздаём еду
 	for _, foodName in pairs(FOOD_TYPES) do
 		local itemButton = consumablesList:FindFirstChild(foodName .. "ItemButton")
 		if itemButton and itemButton:FindFirstChild("Amount") then
-			local amountObj = itemButton:FindFirstChild("Amount")
+			local amountObj = itemButton.Amount
 			local amountText = ""
+
 			if amountObj:IsA("TextLabel") then
 				amountText = amountObj.Text
 			else
 				local label = amountObj:FindFirstChildWhichIsA("TextLabel")
 				if label then amountText = label.Text end
 			end
-			amountText = amountText:gsub("x", "")
+
+			amountText = amountText:gsub("x", ""):gsub(" ", "")
 			local totalFood = tonumber(amountText) or 0
 
 			if totalFood > 0 then
