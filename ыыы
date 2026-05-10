@@ -4,6 +4,18 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local localPlayer = Players.LocalPlayer
+local client, clientHRP
+
+local function updateCharacter()
+    client = localPlayer.Character or localPlayer.CharacterAdded:Wait()
+    clientHRP = client:WaitForChild("HumanoidRootPart", 10)
+    if not clientHRP then
+        task.wait(1)
+        return updateCharacter()
+    end
+end
+updateCharacter()
+localPlayer.CharacterAdded:Connect(updateCharacter)
 
 local SETTINGS = {
     Interval = 10, -- Как часто проверять зону (сек)
@@ -123,11 +135,76 @@ end
 
 local function Teleport(zoneId)
     Log("Attempting teleport to zone: " .. tostring(zoneId))
+    
+    -- 1. Пробуем через Remote (если ZonesService существует)
     local ok, result = callRemote("ZonesService", "requestTeleportZone", zoneId)
-    if not ok then
-        Log("Teleport FAILED: " .. tostring(result), true)
+    if ok then
+        Log("Teleport via Remote OK. Response: "..tostring(result))
+        return
+    end
+    Log("Remote teleport unavailable: "..tostring(result))
+    
+    -- 2. Фоллбек: CFrame телепорт к зоне
+    if not clientHRP then
+        updateCharacter()
+        if not clientHRP then
+            Log("Cannot CFrame teleport: HumanoidRootPart not found", true)
+            return
+        end
+    end
+    
+    local zonesFolder = workspace:FindFirstChild("Zones")
+    if not zonesFolder then
+        Log("Cannot CFrame teleport: Zones folder not found", true)
+        return
+    end
+    
+    -- Ищем зону по номеру
+    local targetZone = nil
+    for _, zone in ipairs(zonesFolder:GetChildren()) do
+        local num = tonumber(zone.Name:match("%d+"))
+        if num == zoneId then
+            targetZone = zone
+            break
+        end
+    end
+    
+    if not targetZone then
+        Log("Zone "..zoneId.." not found in workspace", true)
+        return
+    end
+    
+    -- Ищем точку телепорта в зоне
+    local teleportTarget = nil
+    
+    -- Приоритет: SpawnLocation > Spawn > любой BasePart
+    for _, name in ipairs({"SpawnLocation", "Spawn", "SpawnPoint", "TeleportPoint", "Start"}) do
+        teleportTarget = targetZone:FindFirstChild(name, true)
+        if teleportTarget and teleportTarget:IsA("BasePart") then break end
+        teleportTarget = nil
+    end
+    
+    -- Если нет именованной точки — ищем первый BasePart (не из Gate)
+    if not teleportTarget then
+        for _, child in ipairs(targetZone:GetDescendants()) do
+            if child:IsA("BasePart") and not child:IsDescendantOf(targetZone:FindFirstChild("Gate") or targetZone) then
+                teleportTarget = child
+                break
+            end
+        end
+    end
+    
+    -- Крайний случай — любой BasePart зоны
+    if not teleportTarget then
+        teleportTarget = targetZone:FindFirstChildWhichIsA("BasePart", true)
+    end
+    
+    if teleportTarget then
+        local pos = teleportTarget.Position + Vector3.new(0, 5, 0)
+        clientHRP.CFrame = CFrame.new(pos)
+        Log("CFrame teleport to zone "..zoneId.." OK (target: "..teleportTarget.Name..", pos: "..tostring(pos)..")") 
     else
-        Log("Teleport sent OK. Server response: "..tostring(result))
+        Log("No BasePart found in zone "..zoneId.." to teleport to", true)
     end
 end
 
