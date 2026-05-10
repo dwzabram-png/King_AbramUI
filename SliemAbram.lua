@@ -36,7 +36,6 @@ local State = {
 	AutoIndex = false,
 	AutoFarm = false,
 	AutoPotions = false,
-	AutoTeleportBestZone = false,
 	AutoKill = false,
 	AutoUpgrade = false,
 	AutoBuyZone = false,
@@ -129,8 +128,16 @@ local function toggleNoclip(value)
 	end
 end
 
+local lastZoneCheck = 0
 local function Kill()
 	if not clientHRP or not State.AutoKill then return end
+
+	-- [INTEGRATED] Auto Teleport to Best Zone
+	if os.clock() - lastZoneCheck >= (Config.AutoBestZoneInterval or 15) then
+		lastZoneCheck = os.clock()
+		task.spawn(TeleportBestZone)
+	end
+
 	local gameplay = getGameplayFolder()
 	local enemies = gameplay and gameplay:FindFirstChild("Enemies")
 	if not enemies then return end
@@ -371,11 +378,6 @@ local FEATURES = {
 		kind = "task_loop",
 		getInterval = function() return 3 end,
 		action = function() ConsumePotions() end
-	},
-	AutoTeleportBestZone = {
-		kind = "task_loop",
-		getInterval = function() return Config.AutoBestZoneInterval end,
-		action = function() TeleportBestZone() end
 	},
 	AutoKill = {
 		kind = "rbx_connection",
@@ -975,7 +977,6 @@ createToggle(pageMain, "Auto Index",     "AutoIndex")
 createToggle(pageMain, "Auto Farm",      "AutoFarm")
 createToggle(pageMain, "Auto Potions",   "AutoPotions")
 createToggle(pageMain, "Auto Kill",      "AutoKill")
-createToggle(pageMain, "Auto Best Zone", "AutoTeleportBestZone")
 createSection(pageMain, "Settings")
 createInput(pageMain, "Zone interval (s)", Config.AutoBestZoneInterval, function(v)
 	Config.AutoBestZoneInterval = math.max(1, tonumber(v) or 30)
