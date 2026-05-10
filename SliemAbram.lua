@@ -48,7 +48,7 @@ local State = {
 local Config = {
 	AutoBestZoneInterval = 15,
 	AutoUpgradeInterval = 30,
-	AutoFeedInterval = 30,
+	AutoFeedInterval = 5,
 	WebhookUrl = "",
 	WebhookInterval = 30
 }
@@ -576,9 +576,12 @@ local function startFeature(name)
 
 	if cfg.kind == "task_loop" then
 		local thread = task.spawn(function()
+			print("[Loop] " .. name .. " loop started, interval=" .. tostring(cfg.getInterval()))
 			while State[name] do
+				print("[Loop] " .. name .. " tick")
 				local ok, err = pcall(cfg.action)
 				if not ok then
+					print("[Loop] " .. name .. " ERROR: " .. tostring(err))
 					Notify("Loop Error", name .. ": " .. tostring(err))
 					task.wait(2)
 				end
@@ -598,8 +601,10 @@ end
 -- ==================== LOGIC ====================
 local function toggleFeature(name, value)
 	State[name] = value
+	print("[Toggle] " .. name .. " = " .. tostring(value))
 	Notify(name, value and "Enabled" or "Disabled")
 	if value then
+		print("[Toggle] Starting feature: " .. name)
 		startFeature(name)
 	else
 		stopFeature(name)
