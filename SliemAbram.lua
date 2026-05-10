@@ -1189,6 +1189,23 @@ createSection(pageMain, "Settings")
 createInput(pageMain, "Zone interval (s)", Config.AutoBestZoneInterval, function(v)
 	Config.AutoBestZoneInterval = math.max(1, tonumber(v) or 30)
 end)
+createSection(pageMain, "Actions")
+createActionButton(pageMain, "Collect All Recipes", function()
+	local CS = game:GetService("CollectionService")
+	local recipes = CS:GetTagged("Recipe")
+	local collected = 0
+	for _, obj in ipairs(recipes) do
+		local key = obj:GetAttribute("key")
+		if key then
+			pcall(function()
+				callRemote("CraftingService", "requestClaimRecipe", key, obj)
+			end)
+			collected = collected + 1
+			task.wait(0.05)
+		end
+	end
+	Notify("Collected " .. collected .. "/" .. #recipes .. " recipes")
+end)
 
 createSection(pageUpgrades, "Progression")
 createToggle(pageUpgrades, "MEGA Auto Upgrade", "AutoUpgrade")
