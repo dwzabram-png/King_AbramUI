@@ -5,7 +5,7 @@
 
 repeat task.wait() until game:IsLoaded()
 
-local VERSION = "2.1.3"
+local VERSION = "2.1.4"
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
@@ -320,6 +320,21 @@ local function equipAxe()
     return axe
 end
 
+-- ==================== CHARACTER STATE ====================
+local function getHumanoid()
+    if not client then return nil end
+    return client:FindFirstChildOfClass("Humanoid")
+end
+
+-- Мёртвый или недоспавнившийся персонаж — любые действия (tween, FireServer) будут
+-- отброшены сервером, хотя клиент визуально покажет движение. Нужно ждать респавна.
+local function isCharacterAlive()
+    if not (client and clientHRP and clientHRP.Parent) then return false end
+    local h = getHumanoid()
+    if not h then return false end
+    return h.Health > 0
+end
+
 -- ==================== AUTO FARM ITERATION ====================
 -- Период повторных ударов: ~250мс соответствует стандартной серверной паузе
 -- Tool.Activated. 100мс вызывали spam-detect на части серверов и удары игнорировались.
@@ -357,7 +372,7 @@ local function computeFarmTarget(block, jitter)
 end
 
 local function farmStep()
-    if not (client and clientHRP) then return end
+    if not isCharacterAlive() then return end
     local axe = equipAxe()
     if not axe then return end
 
@@ -451,18 +466,23 @@ local function startAutoFarm()
 
     activeFeatures.AutoFarm = task.spawn(function()
         while State.AutoFarm do
-            local ok, err = pcall(farmStep)
-            if not ok then
-                warn("[SkyWars] farmStep:", err)
-                task.wait(0.5)
+            -- Мёртвый персонаж — спим до CharacterAdded'а. autoFarmRespawn ре-якорит HRP.
+            if not isCharacterAlive() then
+                task.wait(0.3)
+            else
+                local ok, err = pcall(farmStep)
+                if not ok then
+                    warn("[SkyWars] farmStep:", err)
+                    task.wait(0.5)
+                end
+                if not State.AutoFarm then break end
+                -- лёгкая пауза между итерациями + микро-джиттер
+                local pause = 0.05
+                if Config.AntiDetectJitter then
+                    pause = pause + math.random() * 0.05
+                end
+                task.wait(pause)
             end
-            if not State.AutoFarm then break end
-            -- лёгкая пауза между итерациями + микро-джиттер
-            local pause = 0.05
-            if Config.AntiDetectJitter then
-                pause = pause + math.random() * 0.05
-            end
-            task.wait(pause)
         end
         if activeTween then
             pcall(function() activeTween:Cancel() end)
