@@ -178,7 +178,7 @@
 ## Версия
 
 - `SliemAbram.lua` — `1.0.0`, см. константу `VERSION` в `SliemAbram.lua:3`.
-- `SkyWars.lua` — `2.1.4`, см. константу `VERSION` в `SkyWars.lua:8`.
+- `SkyWars.lua` — `2.1.5`, см. константу `VERSION` в `SkyWars.lua:8`.
 
 ## Дисклеймер
 
