@@ -5,7 +5,7 @@
 
 repeat task.wait() until game:IsLoaded()
 
-local VERSION = "2.1.2"
+local VERSION = "2.1.3"
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
@@ -321,7 +321,9 @@ local function equipAxe()
 end
 
 -- ==================== AUTO FARM ITERATION ====================
-local AUTO_FARM_HOLD_TICK = 0.1  -- период повторных :FireServer во время удержания над блоком
+-- Период повторных ударов: ~250мс соответствует стандартной серверной паузе
+-- Tool.Activated. 100мс вызывали spam-detect на части серверов и удары игнорировались.
+local AUTO_FARM_HOLD_TICK = 0.25
 
 local function pickNearestBlock()
     if not (oresFolder and clientHRP) then return nil end
@@ -392,23 +394,35 @@ local function farmStep()
         { CFrame = targetCF }
     )
     activeTween:Play()
-    pcall(function() axe:Activate() end)
-    pcall(function() remote:FireServer(block) end)
     activeTween.Completed:Wait()
     activeTween = nil
 
-    -- Удерживаемся над блоком и добиваем, пока не исчезнет или таймаут.
+    -- Игрок теперь на блоке — серверный distance-check пройдёт. Не бьём во время tween,
+    -- потому что сервер отбросит вызов и может поставить кулдаун на последующие удары.
+    if not (block and block.Parent and State.AutoFarm) then return end
+    if clientHRP then clientHRP.CFrame = targetCF end
+
+    pcall(function() axe:Activate() end)
+    pcall(function() remote:FireServer(block) end)
+
+    -- Повторные удары на ритме Tool.Activated пока блок не разрушен или таймаут.
     local maxHold = math.max(Config.AutoFarmHoldMax, 0.3)
     local t0 = os.clock()
     while State.AutoFarm
        and block.Parent
        and (os.clock() - t0) < maxHold do
-        if clientHRP then
-            clientHRP.CFrame = targetCF
+        task.wait(AUTO_FARM_HOLD_TICK)
+        if not (block.Parent and State.AutoFarm) then break end
+        -- Топор мог отлететь между итерациями (респавн, другой тул) — пере-экипируем.
+        if not (axe and axe.Parent == client) then
+            axe = equipAxe()
+            if not axe then break end
+            remote = axe:FindFirstChildWhichIsA("RemoteEvent") or remote
+            if not remote then break end
         end
+        if clientHRP then clientHRP.CFrame = targetCF end
         pcall(function() axe:Activate() end)
         pcall(function() remote:FireServer(block) end)
-        task.wait(AUTO_FARM_HOLD_TICK)
     end
 end
 
