@@ -5,6 +5,7 @@
 ## Файлы
 
 - **`SliemAbram.lua`** — основной скрипт с современным dark-UI, мобильной адаптацией и набором автоматов (Auto Roll / Farm / Kill / Best Zone / Upgrade / Rebirth / Feed / Equip Best, Discord webhook).
+- **`SkyWars.lua`** — отдельный скрипт авто-фарма руды для раундовых SkyWars-подобных игр: Auto Farm (Tween к ближайшему блоку), event-driven Noclip, Anti-Void платформа, anti-detect jitter, dark-UI с вкладками Main / Settings / Info, ALT для скрытия, мобильная кнопка `SW`.
 - **`abramUI.lua`** — альтернативная сборка UI.
 
 ## Возможности `SliemAbram.lua`
@@ -87,9 +88,59 @@
 | `writefile` / `readfile` / `isfile` | Сохранение конфига          | конфиг сбрасывается при запуске |
 | `gethui`                         | Скрытие GUI от антипатча игры | UI грузится в `CoreGui`     |
 
+## Возможности `SkyWars.lua`
+
+### Automation (вкладка **Main**)
+- **Auto Farm** — телепорт-tween к ближайшему `Block` в `workspace.*Map*.Map.Ores`, активирует `Axe` и шлёт `RemoteEvent:FireServer(block)`. Tween'ы не накапливаются: предыдущий `:Cancel()`-ится перед запуском нового, итерация ждёт `Completed`. Auto Farm автоматически включает `Noclip` и `Anti-Void`.
+- **Noclip** — event-driven: подписка на `DescendantAdded` персонажа вместо per-frame обхода. При выключении коллизии восстанавливаются.
+- **Anti-Void Platform** — невидимая платформа `2000x4x2000` под пивотом карты (`mapFolder:GetPivot()`), а не по жёстким координатам.
+
+### Settings (вкладка **Settings**)
+- **Farm radius (studs)** — радиус поиска руды (по умолчанию `105`, диапазон `10..2000`).
+- **Tween speed (studs/s)** — скорость перемещения (по умолчанию `50`, диапазон `5..500`).
+- **Map rescan (s)** — период переоткрытия `mapFolder` (по умолчанию `5`, диапазон `1..60`). Нужно, потому что в SkyWars карта пересоздаётся между раундами.
+- **Auto-equip Axe** — если `Axe` в `Backpack`, автоматически переносить в персонажа.
+- **Anti-Detect Jitter** — `±7.5%` шума к времени tween и `±0.75` студа к целевой позиции, плюс случайная пауза между итерациями.
+- **Enable Anti-Void** — постоянный флаг (включать платформу или нет при Auto Farm).
+
+### Info (вкладка **Info**)
+- Версия, ник, платформа (PC / Mobile), наличие FS API у executor'а.
+
+## Технические особенности `SkyWars.lua`
+
+- **Неймспейс `_G.AbramSky`** — без коллизий с другими скриптами. При повторном запуске старый экземпляр корректно потушит себя через `NS.cleanup`.
+- **Корректное управление ресурсами** — `:Disconnect()` для коннекшенов, `task.cancel` для тредов, `Tween:Cancel()` для текущего tween-а, `Destroy()` для AntiVoid-платформы.
+- **Defensive executor detection** — проверка `writefile`/`readfile`/`isfile` и `gethui`; уведомление, если FS недоступна.
+- **Anti-AFK** через `localPlayer.Idled` + `VirtualUser:ClickButton2`.
+- **Адаптивный UI** — `UIScale` под мобильный viewport, drag главного окна и pill-виджета, перерасчёт при смене ориентации экрана.
+- **Персистентный конфиг** через `writefile`/`readfile` в `AbramSky_config.json` (опционально).
+- **Авто-recovery после Respawn** — `CharacterAdded` переустанавливает noclip-подписку.
+
+## Конфиг SkyWars
+
+`AbramSky_config.json`:
+
+```json
+{
+  "FarmRadius": 105,
+  "TweenSpeed": 50,
+  "RescanInterval": 5,
+  "AutoEquipAxe": true,
+  "AntiVoidEnabled": true,
+  "AntiDetectJitter": true
+}
+```
+
+## Управление SkyWars
+
+- **PC**: `ALT` — скрыть/показать меню, либо клик по плавающему `SW`-pill.
+- **Mobile**: кнопка `SW` в правом верхнем углу + перетаскиваемый pill-виджет.
+- Перетаскивание главного окна — зажать в любом месте окна и тянуть.
+
 ## Версия
 
-`1.0.0` — см. константу `VERSION` в `SliemAbram.lua:3`.
+- `SliemAbram.lua` — `1.0.0`, см. константу `VERSION` в `SliemAbram.lua:3`.
+- `SkyWars.lua` — `2.0.0`, см. константу `VERSION` в `SkyWars.lua:8`.
 
 ## Дисклеймер
 
