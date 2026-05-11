@@ -1,0 +1,73 @@
+Напиши сложный и безопасный скрипт Auto Dungeon для плейса King Legacy (Roblox). Мне не нужен простой кликер, мне нужна умная логика, использующая конкретные данные игры, RemoteEvents, механику карты и переходов между этажами. Ниже предоставлена полная база данных и аргументы, которые нужно использовать.
+###[БАЗА ДАННЫХ 1: ИНИЦИАЛИЗАЦИЯ И СТАРТ]
+Для старта Данжа (Third Sea - Hard Mode) персонаж должен оказаться на координатах: X: 10959.46, Y: 141.89, Z: 1252.01.
+Нужно дождаться появления UI game:GetService("Players").LocalPlayer.PlayerGui:WaitForChild("ChooseMap") и отправить следующий Remote:
+code
+Lua
+local args = {
+    [1] = "Hard"
+}
+game:GetService("ReplicatedStorage").Chest.Remotes.Functions.SelectDungeon:InvokeServer(unpack(args))
+###[БАЗА ДАННЫХ 2: ИНФОРМАЦИЯ О КАРТАХ И ПОДЗЕМЕЛЬЯХ]
+Подземелья генерируются не на месте старта, а далеко за картой по координатам CFrame.new(20000, 15000, 20000). Папка генерации: workspace.Island["(Real) <Название Карты>"].
+Список карт (используй правильное название для Third Sea - Hard):
+First Sea (Easy): "Forgotten Prison"
+Second Sea (Easy): "Lavahold Prison"
+Third Sea (Easy): "The Warden’s Domain"
+Third Sea (Normal): "Thunder Ruins"
+Third Sea (Hard): "Crustacean Cataclysm" (ДЛЯ ЭТОГО СКРИПТА ЖДАТЬ ЭТУ КАРТУ)
+###[БАЗА ДАННЫХ 3: ЛОГИКА ЭТАЖЕЙ И ЛИФТА]
+В каждом подземелье ровно 5 этажей (Floor1, Floor2, Floor3, Floor4, Floor5).
+Текущий этаж обновляется сервером тут: game:GetService("ReplicatedStorage"):GetAttribute("DungeonFloor").
+Счетчик врагов находится тут: game.Players.LocalPlayer.PlayerGui.DungeonUI.DungeonFrame.Frame.EnemiesFrame.TextLabel.Text.
+Логика Лифта: Когда врагов 0, игрок должен переместиться к workspace.Island["(Real) Crustacean Cataclysm"].Elevator.PrimaryPart.CFrame. Лифт едет ровно 7.5 секунд! Во время движения лифта скрипт должен привязывать CFrame игрока к лифту, иначе игрок упадет в смертельную зону (Void).
+###[БАЗА ДАННЫХ 4: ВРАГИ И БОССЫ]
+Враги спавнятся в папке карты. Они имеют HumanoidRootPart и Humanoid.
+Известные боссы (Приоритет для атаки, имеют атрибут Boss = true):
+"Dark Warden"
+"Magma Warden"
+"Veyzor [Lv. 10000]"
+"Chaos Crab [Lv. 10000]" (Осторожно, на нем запускается 7.5-секундная катсцена с FOV 30, скрипт должен игнорировать изменение камеры и продолжать бить).
+Кости для фокуса атак у боссов: "DEF-spine.001" (приоритетнее чем просто RootPart).
+###[БАЗА ДАННЫХ 5: АТАКА И СКИЛЛЫ (OPE OPE + KIORU V2)]
+Скрипт должен работать по логике контроля зоны (Room).
+Проверка зоны: Проверять наличие объекта workspace:FindFirstChild("OpeRoom" .. game:GetService("Players").LocalPlayer.Name).
+ЕСЛИ ЗОНЫ НЕТ: Спавнить её прямо в координатах персонажа, используя SkillAction "DF_OpOp_Z":
+code
+Lua
+-- Запрос 1 (Нажатие)
+local args_down = {
+    [1] = "DF_OpOp_Z",
+    [2] = {
+        ["Type"] = "Down",["MouseHit"] = game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame
+    }
+}
+game:GetService("ReplicatedStorage").Chest.Remotes.Functions.SkillAction:InvokeServer(unpack(args_down))
+
+-- Запрос 2 (Отпускание)
+local args_up = {
+    [1] = "DF_OpOp_Z",
+    [2] = {
+        ["Type"] = "Up",
+        ["MouseHit"] = game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame
+    }
+}
+game:GetService("ReplicatedStorage").Chest.Remotes.Functions.SkillAction:InvokeServer(unpack(args_up))
+ЕСЛИ ЗОНА ЕСТЬ: Начинать спам M1 атаками меча Kioru V2. Уникальность меча в том, что в зоне Ope Ope он бьет врагов в любой точке зоны. Нужно передавать CFrame ближайшего или приоритетного моба (босса) в MouseHit.
+code
+Lua
+local TargetCFrame = <CFrame ближайшего моба>
+local args_m1 = {
+    [1] = "SW_Kioru V2_M1",
+    [2] = {
+        ["MouseHit"] = TargetCFrame
+    }
+}
+game:GetService("ReplicatedStorage").Chest.Remotes.Functions.SkillAction:InvokeServer(unpack(args_m1))
+[АЛГОРИТМ И ТРЕБОВАНИЯ К КОДУ]
+Сделай код модульным (раздели телепорт, отслеживание UI, отслеживание лифта, проверку зоны и авто-атаку).
+Используй task.spawn и неблокирующие циклы while task.wait() do для авто-атаки.
+Добавь проверку на смерть локального игрока и проверку на наличие нужных фруктов/оружия.
+Оберни ВСЕ вызовы InvokeServer в pcall, чтобы избежать разрыва скрипта при деспавне моба во время отправки запроса.
+Реализуй систему сбора лута: если моб убит, не застревай, сразу переключай TargetCFrame на следующего.
+В лифте ставь атаку на паузу.
