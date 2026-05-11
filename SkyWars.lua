@@ -5,7 +5,7 @@
 
 repeat task.wait() until game:IsLoaded()
 
-local VERSION = "2.1.4"
+local VERSION = "2.1.5"
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
@@ -416,6 +416,11 @@ local function farmStep()
     -- потому что сервер отбросит вызов и может поставить кулдаун на последующие удары.
     if not (block and block.Parent and State.AutoFarm) then return end
     if clientHRP then clientHRP.CFrame = targetCF end
+
+    -- Даём CFrame репликации долететь до сервера (~30-50мс лаг),
+    -- иначе сервер видит нас на старой позиции и distance-check дропает удар.
+    task.wait(0.05)
+    if not (block and block.Parent and State.AutoFarm) then return end
 
     pcall(function() axe:Activate() end)
     pcall(function() remote:FireServer(block) end)
