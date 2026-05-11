@@ -5,7 +5,7 @@
 
 repeat task.wait() until game:IsLoaded()
 
-local VERSION = "2.1.1"
+local VERSION = "2.1.2"
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
@@ -68,7 +68,7 @@ local DEFAULT_CONFIG = {
     AutoEquipAxe      = true,
     AntiVoidEnabled   = true,
     AntiDetectJitter  = true,
-    AutoFarmHover     = 3,      -- студы над блоком (чтобы не спавать в него)
+    AutoFarmHover     = 0,      -- студы над блоком (0 = внутрь, как в оригинале; >0 = висеть сверху)
     AutoFarmHoldMax   = 2,      -- сек, макс ожидание разрушения блока
 
     -- Movement
@@ -112,6 +112,14 @@ local function loadConfig()
     end)
 end
 loadConfig()
+
+-- v2.1.2 migration: в v2.1.1 дефолт AutoFarmHover был 3, из-за чего игрок
+-- висел слишком высоко над блоком и выпадал из радиуса майнинга.
+-- Сбрасываем старый дефолт обратно в 0 (пользователь может выставить явно в Settings).
+if Config.AutoFarmHover == 3 then
+    Config.AutoFarmHover = 0
+    saveConfig()
+end
 
 -- ==================== STATE ====================
 local State = {
@@ -330,11 +338,18 @@ local function pickNearestBlock()
     return nearest, nearestDist
 end
 
--- Нависаем НАД блоком (верхняя грань + offset), смотря вниз на блок.
--- Без этого tween летел в центр и с noclip игрок проваливался сквозь него.
+-- По умолчанию (hover ≈ 0) встаём точно в центр блока — сервер валидирует
+-- радиус майнинга от этой точки. Anchor + noclip держат персонажа внутри блока.
+-- При hover > 0 виснем НАД блоком (верхняя грань + offset), смотря вниз на него
+-- — полезно только в играх, где сервер разрешает майнить издали.
 local function computeFarmTarget(block, jitter)
+    local hover = math.max(Config.AutoFarmHover or 0, 0)
+    if hover < 0.05 then
+        local cf = block.CFrame + jitter
+        return cf, cf.Position
+    end
     local top    = block.Position.Y + block.Size.Y * 0.5
-    local hoverY = top + math.max(Config.AutoFarmHover, 0)
+    local hoverY = top + hover
     local pos    = Vector3.new(block.Position.X, hoverY, block.Position.Z) + jitter
     return CFrame.new(pos, block.Position), pos
 end
