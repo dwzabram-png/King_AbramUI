@@ -1,4 +1,8 @@
-local Junkie = loadstring(game:HttpGet("https://jnkie.com/sdk/library.lua"))()
+-- Bypass: mock Junkie SDK so no remote key check runs
+local Junkie = {
+    check_key = function() return {valid = true, message = "KEYLESS", key_valid = true} end,
+    get_key_link = function() return "" end,
+}
 Junkie.service = "kyotaki hub beta"
 Junkie.identifier = "1054147"
 Junkie.provider = "linkvertise"
