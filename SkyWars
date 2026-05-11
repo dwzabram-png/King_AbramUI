@@ -1,0 +1,163 @@
+-- Настройки и сервисы
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local player = Players.LocalPlayer
+
+-- Переменные состояния
+local autoFarmEnabled = false
+local farmingActive = false
+local noclipConnection = nil
+
+-- ==========================================
+-- СОЗДАНИЕ ИНТЕРФЕЙСА (GUI)
+-- ==========================================
+local ScreenGui = Instance.new("ScreenGui")
+local MainFrame = Instance.new("Frame")
+local ToggleButton = Instance.new("TextButton")
+local UICorner = Instance.new("UICorner")
+
+ScreenGui.Name = "AutoFarmGui"
+ScreenGui.Parent = player:WaitForChild("PlayerGui")
+ScreenGui.ResetOnSpawn = false
+
+MainFrame.Name = "MainFrame"
+MainFrame.Parent = ScreenGui
+MainFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+MainFrame.Position = UDim2.new(0.5, -75, 0.8, 0)
+MainFrame.Size = UDim2.new(0, 150, 0, 60)
+MainFrame.Active = true
+MainFrame.Draggable = true -- Можно перемещать по экрану
+
+UICorner.Parent = MainFrame
+UICorner.CornerRadius = UDim.new(0, 10)
+
+ToggleButton.Name = "ToggleButton"
+ToggleButton.Parent = MainFrame
+ToggleButton.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+ToggleButton.Size = UDim2.new(1, 0, 1, 0)
+ToggleButton.Font = Enum.Font.GothamBold
+ToggleButton.Text = "AutoFarm: OFF"
+ToggleButton.TextColor3 = Color3.fromRGB(255, 0, 0)
+ToggleButton.TextScaled = true
+ToggleButton.BackgroundTransparency = 1
+
+-- ==========================================
+-- ЛОГИКА АВТО-ФАРМА
+-- ==========================================
+local function StartAutoFarm()
+    if farmingActive then return end
+    farmingActive = true
+
+    spawn(function()
+        -- 1. Ищем папку с картой
+        local mapFolder
+        for _, v in pairs(workspace:GetChildren()) do
+            if v.Name:match("Map") then
+                mapFolder = v
+                break
+            end
+        end
+
+        if not mapFolder then
+            warn("Карта не найдена!")
+            farmingActive = false
+            return
+        end
+
+        -- 2. Создаем платформу AntiVoid (чтобы не упасть под карту)
+        local antiVoid = workspace:FindFirstChild("AntiVoidPart")
+        if not antiVoid then
+            antiVoid = Instance.new("Part")
+            antiVoid.Name = "AntiVoidPart"
+            antiVoid.Size = Vector3.new(1500, 8, 1500)
+            antiVoid.Position = Vector3.new(25, 58, -8)
+            antiVoid.Anchored = true
+            antiVoid.Transparency = 1
+            antiVoid.CanCollide = true
+            antiVoid.Parent = workspace
+        end
+
+        -- 3. Включаем Noclip (прохождение сквозь стены)
+        noclipConnection = RunService.Stepped:Connect(function()
+            if player.Character then
+                for _, part in pairs(player.Character:GetDescendants()) do
+                    if part:IsA("BasePart") and part.CanCollide then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end)
+
+        -- 4. Главный цикл фарма
+        while autoFarmEnabled do
+            task.wait()
+            local char = player.Character
+            if not char then continue end
+            
+            local rootPart = char:FindFirstChild("HumanoidRootPart")
+            if not rootPart then continue end
+
+            -- Берем топор в руки
+            local axe = char:FindFirstChild("Axe") or player.Backpack:FindFirstChild("Axe")
+            if axe and axe.Parent ~= char then
+                axe.Parent = char
+            end
+            
+            if axe then
+                axe:Activate()
+            else
+                warn("Топор не найден!")
+                break
+            end
+
+            local remote = axe:FindFirstChild("RemoteEvent")
+            local oresFolder = mapFolder:FindFirstChild("Map") and mapFolder.Map:FindFirstChild("Ores")
+
+            if oresFolder and remote then
+                -- Ищем руду
+                for _, block in pairs(oresFolder:GetChildren()) do
+                    if block.Name == "Block" then
+                        local dist = (rootPart.Position - block.Position).Magnitude
+                        
+                        -- Если руда в радиусе 105 стадов
+                        if dist < 105 then
+                            -- Летим (Tween) к руде
+                            local tweenTime = dist / 50
+                            local tween = TweenService:Create(rootPart, TweenInfo.new(tweenTime, Enum.EasingStyle.Linear), {CFrame = block.CFrame})
+                            tween:Play()
+                            
+                            -- Отправляем сигнал на сервер, что мы добыли руду
+                            remote:FireServer(block)
+                            break -- Переходим к следующему блоку
+                        end
+                    end
+                end
+            end
+        end
+
+        -- 5. Очистка при выключении
+        if noclipConnection then
+            noclipConnection:Disconnect()
+            noclipConnection = nil
+        end
+        farmingActive = false
+    end)
+end
+
+-- ==========================================
+-- ОБРАБОТЧИК КНОПКИ
+-- ==========================================
+ToggleButton.MouseButton1Click:Connect(function()
+    autoFarmEnabled = not autoFarmEnabled
+    
+    if autoFarmEnabled then
+        ToggleButton.Text = "AutoFarm: ON"
+        ToggleButton.TextColor3 = Color3.fromRGB(0, 255, 0)
+        StartAutoFarm()
+    else
+        ToggleButton.Text = "AutoFarm: OFF"
+        ToggleButton.TextColor3 = Color3.fromRGB(255, 0, 0)
+    end
+end)
+Enable
