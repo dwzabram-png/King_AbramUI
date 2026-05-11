@@ -6,6 +6,7 @@
 
 - **`SliemAbram.lua`** — основной скрипт с современным dark-UI, мобильной адаптацией и набором автоматов (Auto Roll / Farm / Kill / Best Zone / Upgrade / Rebirth / Feed / Equip Best, Discord webhook).
 - **`SkyWars.lua`** — полнофункциональный скрипт для SkyWars-подобных игр: Auto Farm руды, event-driven Noclip, Anti-Void, набор Movement-фич (Fly/Speed/HighJump/FastFall/NoRotate/Blink/TPaura), Combat (AutoClicker/AutoBow), Visual (FOV/Chams/ESP/Ore ESP/NoCameraClip/NoRender), anti-detect jitter, dark-UI с вкладками Main / Movement / Visual / Settings / Info, ALT для скрытия, мобильная кнопка `SW`.
+- **`KingLegacy.lua`** — Auto Dungeon для King Legacy (Third Sea · Hard · «Crustacean Cataclysm»): мастер-цикл `teleport → SelectDungeon → ждать карту → OpeRoom (DF_OpOp_Z) → авто-атака `SW_Kioru V2_M1` с приоритетом по боссам (`Boss=true`, фокус в `DEF-spine.001`) → CFrame-lock к лифту на 7.5 с → повтор`. Все `InvokeServer` обёрнуты в `pcall`, атака паузится в лифте/на смерти, цель моментально пересчитывается при деспавне. Dark-UI с вкладками Main / Settings / Info, ALT для скрытия, мобильная кнопка `KL`.
 - **`abramUI.lua`** — альтернативная сборка UI.
 
 ## Возможности `SliemAbram.lua`
@@ -175,10 +176,84 @@
 - **Mobile**: кнопка `SW` в правом верхнем углу + перетаскиваемый pill-виджет.
 - Перетаскивание главного окна — зажать в любом месте окна и тянуть.
 
+## Возможности `KingLegacy.lua`
+
+### Master loop (вкладка **Main · Auto Dungeon**)
+- **Auto Dungeon (full cycle)** — модульный мастер-цикл. Каждая итерация:
+  1. Телепорт к стартовой точке (`StartX/Y/Z`, по умолчанию `10959.46, 141.89, 1252.01`).
+  2. Ожидание `PlayerGui.ChooseMap`.
+  3. `ReplicatedStorage.Chest.Remotes.Functions.SelectDungeon:InvokeServer(Difficulty)` (по умолчанию `"Hard"`).
+  4. Ожидание `workspace.Island["(Real) <Map>"]` (по умолчанию `Crustacean Cataclysm`).
+  5. Включение `AutoOpeRoom` / `AutoAttack` / `AutoElevator` на время прохождения.
+  6. Когда `ReplicatedStorage:GetAttribute("DungeonFloor") == 5` и враги = 0 — пауза 5 с и рестарт (`AutoRestart`).
+- **One-shot Teleport** — единичный телепорт к стартовой точке (выключается после срабатывания).
+- **One-shot Select Dungeon** — единичный `SelectDungeon` с текущей `Difficulty`.
+
+### In-dungeon (вкладка **Main · In-dungeon**)
+- **Auto Ope Ope Room (Z)** — каждую секунду проверяет наличие `workspace.OpeRoom<PlayerName>`. Если зоны нет, отправляет `SkillAction` `DF_OpOp_Z` (`Down` → `Up`) c `MouseHit = HumanoidRootPart.CFrame`, чтобы зона спавнилась под игроком.
+- **Auto Attack (Kioru V2 M1)** — два неблокирующих потока (target-rescan + attack), оба под `pcall`:
+  - **Target priority**: модели в папке `(Real) <Map>` с живым `Humanoid`. Босс (`GetAttribute("Boss") == true` или имя из `BOSS_NAMES` — `Dark Warden` / `Magma Warden` / `Veyzor [Lv. 10000]` / `Chaos Crab [Lv. 10000]`) приоритетнее любого моба.
+  - **Attack focus**: ищет в модели часть с именем `DEF-spine.001` (она ближе к центру моба и валидируется сервером лучше, чем `RootPart`), иначе fallback на `HumanoidRootPart`.
+  - **Reaction**: на смерть цели не ждёт следующий tick target-rescan — пересчитывает цель прямо в потоке атаки.
+  - **Pause conditions**: смерть локального игрока, поездка в лифте (`elevatorBusy`), не в данже (`AttackOnlyInDungeon=true`).
+  - **Camera-safe**: спам M1 не зависит от FOV/камеры — катсцена `Chaos Crab` (FOV 30, 7.5 с) не сбивает атаку.
+- **Auto Elevator (CFrame lock)** — следит за `PlayerGui.DungeonUI.DungeonFrame.Frame.EnemiesFrame.TextLabel`. Когда `enemies == 0`:
+  1. Берёт `workspace.Island["(Real) <Map>"].Elevator.PrimaryPart.CFrame`.
+  2. На `ElevatorDuration` секунд (по умолчанию 7.5) каждый кадр выставляет `HRP.CFrame = elevator.CFrame + Vector3.new(0,3,0)` и обнуляет velocity, чтобы инерция не сбросила игрока в Void.
+  3. После — отдаёт 0.5 с серверу на регистрацию следующего этажа.
+
+### Settings (вкладка **Settings**)
+- **Dungeon**: `Difficulty` (`"Easy"` / `"Normal"` / `"Hard"`), `Map name`, `Start X/Y/Z`, `Elevator (s)`, `Auto Restart`.
+- **Combat**: `Attack interval (s)` (0.02..1, по умолчанию 0.1 = 10 CPS), `Target rescan (s)` (0.05..2), `Only attack in dungeon`.
+- **Misc**: `Anti-AFK`, `Verbose pcall logs` (отладка).
+
+### Info (вкладка **Info**)
+- Версия, ник, платформа (PC / Mobile), наличие FS API у executor'а, краткая справка.
+
+## Технические особенности `KingLegacy.lua`
+
+- **Неймспейс `_G.AbramKing`** — корректный re-load (`NS.cleanup` гасит предыдущий экземпляр со всеми потоками и UI).
+- **Кэш Remote-сервисов** — `getRemote(path)` лазит в `ReplicatedStorage` только один раз на путь.
+- **`safeCall(label, fn, ...)`** — единая точка `pcall` для всех `InvokeServer`/опасных операций, с опциональным `warn`-логированием по флагу `PcallVerbose`.
+- **`isAlive()` + `inDungeonMap()`** — guard для всех потоков, чтобы не дёргать сервер во время респауна или вне карты.
+- **Без полноэкранных циклов** — `task.spawn` + `task.wait()` для каждой подсистемы, `task.cancel` при выключении тоггла.
+- **Defensive UI** — все интерактивные элементы — `pcall`-safe, drag главного окна и pill, ALT для скрытия, отдельная мобильная кнопка `KL`.
+- **Персистентный конфиг** — `writefile`/`readfile` в `AbramKing_config.json` (опционально, если executor поддерживает).
+
+## Конфиг KingLegacy
+
+`AbramKing_config.json`:
+
+```json
+{
+  "DungeonDifficulty": "Hard",
+  "StartX": 10959.46,
+  "StartY": 141.89,
+  "StartZ": 1252.01,
+  "DungeonMapName": "Crustacean Cataclysm",
+  "ElevatorDuration": 7.5,
+  "AutoRestart": true,
+
+  "AttackInterval": 0.1,
+  "TargetRescanInterval": 0.25,
+  "AttackOnlyInDungeon": true,
+
+  "AntiAFK": true,
+  "PcallVerbose": false
+}
+```
+
+## Управление KingLegacy
+
+- **PC**: `ALT` — скрыть/показать меню, либо клик по плавающему `KL`-pill.
+- **Mobile**: кнопка `KL` в правом верхнем углу + перетаскиваемый pill-виджет.
+- Перетаскивание главного окна — зажать в любом месте окна и тянуть.
+
 ## Версия
 
 - `SliemAbram.lua` — `1.0.0`, см. константу `VERSION` в `SliemAbram.lua:3`.
 - `SkyWars.lua` — `2.1.5`, см. константу `VERSION` в `SkyWars.lua:8`.
+- `KingLegacy.lua` — `1.0.0`, см. константу `VERSION` в `KingLegacy.lua:11`.
 
 ## Дисклеймер
 
