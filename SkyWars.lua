@@ -5,7 +5,7 @@
 
 repeat task.wait() until game:IsLoaded()
 
-local VERSION = "2.1.0"
+local VERSION = "2.1.1"
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
@@ -68,6 +68,8 @@ local DEFAULT_CONFIG = {
     AutoEquipAxe      = true,
     AntiVoidEnabled   = true,
     AntiDetectJitter  = true,
+    AutoFarmHover     = 3,      -- студы над блоком (чтобы не спавать в него)
+    AutoFarmHoldMax   = 2,      -- сек, макс ожидание разрушения блока
 
     -- Movement
     FlySpeed          = 60,     -- студов/с
@@ -311,6 +313,8 @@ local function equipAxe()
 end
 
 -- ==================== AUTO FARM ITERATION ====================
+local AUTO_FARM_HOLD_TICK = 0.1  -- период повторных :FireServer во время удержания над блоком
+
 local function pickNearestBlock()
     if not (oresFolder and clientHRP) then return nil end
     local nearest, nearestDist
@@ -326,17 +330,40 @@ local function pickNearestBlock()
     return nearest, nearestDist
 end
 
+-- Нависаем НАД блоком (верхняя грань + offset), смотря вниз на блок.
+-- Без этого tween летел в центр и с noclip игрок проваливался сквозь него.
+local function computeFarmTarget(block, jitter)
+    local top    = block.Position.Y + block.Size.Y * 0.5
+    local hoverY = top + math.max(Config.AutoFarmHover, 0)
+    local pos    = Vector3.new(block.Position.X, hoverY, block.Position.Z) + jitter
+    return CFrame.new(pos, block.Position), pos
+end
+
 local function farmStep()
     if not (client and clientHRP) then return end
     local axe = equipAxe()
     if not axe then return end
-    pcall(function() axe:Activate() end)
 
     local remote = axe:FindFirstChildWhichIsA("RemoteEvent")
     if not (remote and oresFolder) then return end
 
-    local block, dist = pickNearestBlock()
+    local block = pickNearestBlock()
     if not block then return end
+
+    local speed = math.max(Config.TweenSpeed, 5)
+    local timeScale, posJitter = 1, Vector3.zero
+    if Config.AntiDetectJitter then
+        timeScale = 1 + (math.random() - 0.5) * 0.15           -- ±7.5%
+        posJitter = Vector3.new(
+            (math.random() - 0.5) * 1.0,
+            (math.random() - 0.5) * 0.3,
+            (math.random() - 0.5) * 1.0
+        )
+    end
+
+    local targetCF, targetPos = computeFarmTarget(block, posJitter)
+    local moveDist  = (clientHRP.Position - targetPos).Magnitude
+    local tweenTime = math.max(moveDist / speed * timeScale, 0.05)
 
     -- Отменяем предыдущий tween, не накапливая
     if activeTween then
@@ -344,37 +371,54 @@ local function farmStep()
         activeTween = nil
     end
 
-    local speed = math.max(Config.TweenSpeed, 5)
-    local timeScale, posJitter = 1, Vector3.zero
-    if Config.AntiDetectJitter then
-        timeScale = 1 + (math.random() - 0.5) * 0.15           -- ±7.5%
-        posJitter = Vector3.new(
-            (math.random() - 0.5) * 1.5,
-            (math.random() - 0.5) * 0.5,
-            (math.random() - 0.5) * 1.5
-        )
-    end
-
-    local tweenTime = math.max(dist / speed * timeScale, 0.05)
-    local targetCF  = block.CFrame + posJitter
-
     activeTween = TweenService:Create(
         clientHRP,
         TweenInfo.new(tweenTime, Enum.EasingStyle.Linear),
         { CFrame = targetCF }
     )
     activeTween:Play()
+    pcall(function() axe:Activate() end)
     pcall(function() remote:FireServer(block) end)
     activeTween.Completed:Wait()
     activeTween = nil
+
+    -- Удерживаемся над блоком и добиваем, пока не исчезнет или таймаут.
+    local maxHold = math.max(Config.AutoFarmHoldMax, 0.3)
+    local t0 = os.clock()
+    while State.AutoFarm
+       and block.Parent
+       and (os.clock() - t0) < maxHold do
+        if clientHRP then
+            clientHRP.CFrame = targetCF
+        end
+        pcall(function() axe:Activate() end)
+        pcall(function() remote:FireServer(block) end)
+        task.wait(AUTO_FARM_HOLD_TICK)
+    end
 end
 
 -- ==================== FEATURE LIFECYCLE ====================
+-- Якорим HRP на время AutoFarm — это убирает гравитацию между
+-- tween'ами. Без этого персонаж скачет вверх/вниз в колонне блоков.
+local function applyAutoFarmAnchor(state)
+    if not clientHRP then return end
+    pcall(function() clientHRP.Anchored = state end)
+end
+
 local function startAutoFarm()
     if activeFeatures.AutoFarm then return end
     ensureAntiVoid()
     startNoclip()
     refreshMap()
+
+    applyAutoFarmAnchor(true)
+
+    -- После Respawn'а clientHRP обновляется — пере-якорим, если AutoFarm всё ещё on
+    disconnect("autoFarmRespawn")
+    connections.autoFarmRespawn = localPlayer.CharacterAdded:Connect(function()
+        task.wait(0.5)
+        if State.AutoFarm then applyAutoFarmAnchor(true) end
+    end)
 
     activeFeatures.AutoFarm = task.spawn(function()
         while State.AutoFarm do
@@ -405,6 +449,8 @@ local function stopAutoFarm()
         pcall(function() activeTween:Cancel() end)
         activeTween = nil
     end
+    disconnect("autoFarmRespawn")
+    applyAutoFarmAnchor(false)
     if not State.Noclip then stopNoclip() end
 end
 
@@ -1533,6 +1579,14 @@ createInput(pageSettings, "Farm radius (studs)", Config.FarmRadius, function(v)
 end)
 createInput(pageSettings, "Tween speed (studs/s)", Config.TweenSpeed, function(v)
     Config.TweenSpeed = math.clamp(tonumber(v) or DEFAULT_CONFIG.TweenSpeed, 5, 500)
+    saveConfig()
+end)
+createInput(pageSettings, "Hover above block (studs)", Config.AutoFarmHover, function(v)
+    Config.AutoFarmHover = math.clamp(tonumber(v) or DEFAULT_CONFIG.AutoFarmHover, 0, 15)
+    saveConfig()
+end)
+createInput(pageSettings, "Block hold max (s)", Config.AutoFarmHoldMax, function(v)
+    Config.AutoFarmHoldMax = math.clamp(tonumber(v) or DEFAULT_CONFIG.AutoFarmHoldMax, 0.3, 10)
     saveConfig()
 end)
 createInput(pageSettings, "Map rescan (s)", Config.RescanInterval, function(v)

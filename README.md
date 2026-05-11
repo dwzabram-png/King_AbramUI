@@ -91,7 +91,7 @@
 ## Возможности `SkyWars.lua`
 
 ### Automation (вкладка **Main**)
-- **Auto Farm** — телепорт-tween к ближайшему `Block` в `workspace.*Map*.Map.Ores`, активирует `Axe` и шлёт `RemoteEvent:FireServer(block)`. Tween'ы не накапливаются: предыдущий `:Cancel()`-ится перед запуском нового, итерация ждёт `Completed`. Auto Farm автоматически включает `Noclip` и `Anti-Void`.
+- **Auto Farm** — телепорт-tween к ближайшему `Block` в `workspace.*Map*.Map.Ores`, нависание над блоком (верхняя грань + offset), удержание позиции и добивание `RemoteEvent:FireServer(block)` раз в 100мс пока блок не уничтожен (таймаут `AutoFarmHoldMax`). HRP якорится на время AutoFarm — персонаж не падает между твинами и не дёргается при фарме колонны блоков. Tween'ы не накапливаются. Auto Farm автоматически включает `Noclip` и `Anti-Void`.
 - **Noclip** — event-driven: подписка на `DescendantAdded` персонажа вместо per-frame обхода. При выключении коллизии восстанавливаются.
 - **Anti-Void Platform** — невидимая платформа `2000x4x2000` под пивотом карты (`mapFolder:GetPivot()`), а не по жёстким координатам.
 
@@ -119,6 +119,8 @@
 ### Settings (вкладка **Settings**)
 - **Farm radius (studs)** — радиус поиска руды (по умолчанию `105`, диапазон `10..2000`).
 - **Tween speed (studs/s)** — скорость перемещения Auto Farm (`5..500`).
+- **Hover above block (studs)** — на сколько высоты блока прижиматься сверху (по умолчанию `3`, диапазон `0..15`).
+- **Block hold max (s)** — таймаут удержания над блоком, если он вдруг не разрушается (по умолчанию `2`, диапазон `0.3..10`).
 - **Map rescan (s)** — период переоткрытия `mapFolder` (`1..60`).
 - **Auto-equip Axe**, **Anti-Detect Jitter**, **Enable Anti-Void** — флаги поведения.
 - **Movement tuning**: `Fly speed`, `Walk speed`, `Jump power`, `Fast Fall (studs)`, `Blink speed`, `TP Aura range` — все с клампами.
@@ -150,6 +152,8 @@
   "AutoEquipAxe": true,
   "AntiVoidEnabled": true,
   "AntiDetectJitter": true,
+  "AutoFarmHover": 3,
+  "AutoFarmHoldMax": 2,
 
   "FlySpeed": 60,
   "WalkSpeed": 32,
@@ -174,7 +178,7 @@
 ## Версия
 
 - `SliemAbram.lua` — `1.0.0`, см. константу `VERSION` в `SliemAbram.lua:3`.
-- `SkyWars.lua` — `2.1.0`, см. константу `VERSION` в `SkyWars.lua:8`.
+- `SkyWars.lua` — `2.1.1`, см. константу `VERSION` в `SkyWars.lua:8`.
 
 ## Дисклеймер
 
