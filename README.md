@@ -5,7 +5,7 @@
 ## Файлы
 
 - **`SliemAbram.lua`** — основной скрипт с современным dark-UI, мобильной адаптацией и набором автоматов (Auto Roll / Farm / Kill / Best Zone / Upgrade / Rebirth / Feed / Equip Best, Discord webhook).
-- **`SkyWars.lua`** — отдельный скрипт авто-фарма руды для раундовых SkyWars-подобных игр: Auto Farm (Tween к ближайшему блоку), event-driven Noclip, Anti-Void платформа, anti-detect jitter, dark-UI с вкладками Main / Settings / Info, ALT для скрытия, мобильная кнопка `SW`.
+- **`SkyWars.lua`** — полнофункциональный скрипт для SkyWars-подобных игр: Auto Farm руды, event-driven Noclip, Anti-Void, набор Movement-фич (Fly/Speed/HighJump/FastFall/NoRotate/Blink/TPaura), Combat (AutoClicker/AutoBow), Visual (FOV/Chams/ESP/Ore ESP/NoCameraClip/NoRender), anti-detect jitter, dark-UI с вкладками Main / Movement / Visual / Settings / Info, ALT для скрытия, мобильная кнопка `SW`.
 - **`abramUI.lua`** — альтернативная сборка UI.
 
 ## Возможности `SliemAbram.lua`
@@ -95,13 +95,35 @@
 - **Noclip** — event-driven: подписка на `DescendantAdded` персонажа вместо per-frame обхода. При выключении коллизии восстанавливаются.
 - **Anti-Void Platform** — невидимая платформа `2000x4x2000` под пивотом карты (`mapFolder:GetPivot()`), а не по жёстким координатам.
 
+### Combat (вкладка **Main**)
+- **Auto Clicker** — периодически вызывает `:Activate()` на текущем экипированном туле (Sword, Axe, Bow). CPS настраивается в Settings (1..30).
+- **Auto Bow** — если в персонаже лежит `Bow`, стреляет раз в секунду через `Bow.ServerControl:InvokeServer(true/false)`.
+
+### Movement (вкладка **Movement**)
+- **Fly** — RenderStepped + WASD + Space/Shift. Направление с учётом взгляда камеры, скорость настраивается.
+- **Speed** — редактирует `Humanoid.WalkSpeed`. Авто-переприменение после Respawn'а.
+- **High Jump** — повышает `Humanoid.JumpPower` (вынуждает `UseJumpPower = true`).
+- **Fast Fall** — во время состояния `Freefall` с велоцити < 0 добавляет вектор вниз (быстрее приземление).
+- **No Rotate** — `Humanoid.AutoRotate = false` (персонаж не поворачивается по камере).
+- **Blink** — якорит `HumanoidRootPart`, выводит неоновый маркер, WASD двигает маркер. При выключении телепортирует персонажа к маркеру.
+- **TP Aura** — Heartbeat-loop, ищет ближайшего живого игрока в `TPauraRange` и телепортирует к нему.
+
+### Visual (вкладка **Visual**)
+- **FOV Override** — выставляет `Camera.FieldOfView` (из Settings, диапазон `30..120`). При выключении возвращает исходное значение.
+- **No Camera Clip** — переключает `DevCameraOcclusionMode` на `Invisicam` (камера не упирается в блоки).
+- **Player ESP** — BillboardGui над вражескими игроками с ником и расстоянием (опционально).
+- **Chams** — `Highlight` на вражеских персонажах (красная заливка, белый обвод).
+- **Ore ESP** — подсветка `Block`-ов в `oresFolder` ярко-жёлтым.
+- **No Render** — периодически убивает `ShopGuiButtons` и `PromoFrame` в `PlayerGui.ScreenGui` (прячет баннеры магазина).
+
 ### Settings (вкладка **Settings**)
 - **Farm radius (studs)** — радиус поиска руды (по умолчанию `105`, диапазон `10..2000`).
-- **Tween speed (studs/s)** — скорость перемещения (по умолчанию `50`, диапазон `5..500`).
-- **Map rescan (s)** — период переоткрытия `mapFolder` (по умолчанию `5`, диапазон `1..60`). Нужно, потому что в SkyWars карта пересоздаётся между раундами.
-- **Auto-equip Axe** — если `Axe` в `Backpack`, автоматически переносить в персонажа.
-- **Anti-Detect Jitter** — `±7.5%` шума к времени tween и `±0.75` студа к целевой позиции, плюс случайная пауза между итерациями.
-- **Enable Anti-Void** — постоянный флаг (включать платформу или нет при Auto Farm).
+- **Tween speed (studs/s)** — скорость перемещения Auto Farm (`5..500`).
+- **Map rescan (s)** — период переоткрытия `mapFolder` (`1..60`).
+- **Auto-equip Axe**, **Anti-Detect Jitter**, **Enable Anti-Void** — флаги поведения.
+- **Movement tuning**: `Fly speed`, `Walk speed`, `Jump power`, `Fast Fall (studs)`, `Blink speed`, `TP Aura range` — все с клампами.
+- **Combat tuning**: `Auto Clicker (CPS)` `1..30`.
+- **Visual tuning**: `FOV value` `30..120`, `ESP shows distance` (вкл/выкл).
 
 ### Info (вкладка **Info**)
 - Версия, ник, платформа (PC / Mobile), наличие FS API у executor'а.
@@ -127,7 +149,19 @@
   "RescanInterval": 5,
   "AutoEquipAxe": true,
   "AntiVoidEnabled": true,
-  "AntiDetectJitter": true
+  "AntiDetectJitter": true,
+
+  "FlySpeed": 60,
+  "WalkSpeed": 32,
+  "JumpPower": 100,
+  "FastFallStrength": 4,
+  "BlinkSpeed": 80,
+  "TPauraRange": 18,
+
+  "AutoClickCPS": 12,
+
+  "FovValue": 90,
+  "EspShowDistance": true
 }
 ```
 
@@ -140,7 +174,7 @@
 ## Версия
 
 - `SliemAbram.lua` — `1.0.0`, см. константу `VERSION` в `SliemAbram.lua:3`.
-- `SkyWars.lua` — `2.0.0`, см. константу `VERSION` в `SkyWars.lua:8`.
+- `SkyWars.lua` — `2.1.0`, см. константу `VERSION` в `SkyWars.lua:8`.
 
 ## Дисклеймер
 
