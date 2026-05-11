@@ -5,7 +5,7 @@
 
 repeat task.wait() until game:IsLoaded()
 
-local VERSION = "2.0.0"
+local VERSION = "2.1.0"
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
@@ -68,6 +68,21 @@ local DEFAULT_CONFIG = {
     AutoEquipAxe      = true,
     AntiVoidEnabled   = true,
     AntiDetectJitter  = true,
+
+    -- Movement
+    FlySpeed          = 60,     -- студов/с
+    WalkSpeed         = 32,     -- студов/с
+    JumpPower         = 100,
+    FastFallStrength  = 4,      -- студы вниз за кадр во время фолла
+    BlinkSpeed        = 80,     -- студов/с движения маркера
+    TPauraRange       = 18,     -- радиус поиска врагов для TPaura
+
+    -- Combat
+    AutoClickCPS      = 12,     -- click-per-second
+
+    -- Visual
+    FovValue          = 90,
+    EspShowDistance   = true,
 }
 local Config = table.clone(DEFAULT_CONFIG)
 local CONFIG_FILE = "AbramSky_config.json"
@@ -101,6 +116,27 @@ local State = {
     AutoFarm = false,
     Noclip   = false,
     AntiVoid = false,
+
+    -- Movement
+    Fly      = false,
+    Speed    = false,
+    HighJump = false,
+    FastFall = false,
+    NoRotate = false,
+    Blink    = false,
+    TPaura   = false,
+
+    -- Combat
+    AutoClicker = false,
+    AutoBow     = false,
+
+    -- Visual
+    FOV          = false,
+    Chams        = false,
+    ESP          = false,
+    OreESP       = false,
+    NoCameraClip = false,
+    NoRender     = false,
 }
 
 local activeFeatures = {}    -- name -> handle (thread / connection / true)
@@ -114,7 +150,11 @@ local oresFolder     -- mapFolder.Map.Ores
 local function disconnect(key)
     local c = connections[key]
     if c then
-        pcall(function() c:Disconnect() end)
+        if type(c) == "thread" then
+            pcall(task.cancel, c)
+        else
+            pcall(function() c:Disconnect() end)
+        end
         connections[key] = nil
     end
 end
@@ -368,10 +408,528 @@ local function stopAutoFarm()
     if not State.Noclip then stopNoclip() end
 end
 
+-- ==================== MOVEMENT FEATURES ====================
+local FlyKeys   = { W=false, A=false, S=false, D=false, Space=false, LeftShift=false }
+local BlinkKeys = { W=false, A=false, S=false, D=false }
+
+local function vectorFromKeys(keys, withVertical)
+    local d = Vector3.new(0, 0, 0)
+    if keys.W then d = d + Vector3.new(0, 0, -1) end
+    if keys.S then d = d + Vector3.new(0, 0,  1) end
+    if keys.A then d = d + Vector3.new(-1, 0, 0) end
+    if keys.D then d = d + Vector3.new( 1, 0, 0) end
+    if withVertical then
+        if keys.Space     then d = d + Vector3.new(0,  1, 0) end
+        if keys.LeftShift then d = d + Vector3.new(0, -1, 0) end
+    end
+    return d
+end
+
+local function startFly()
+    if connections.flyStep then return end
+    connections.flyBegin = UserInputService.InputBegan:Connect(function(input, gp)
+        if gp or not State.Fly then return end
+        if FlyKeys[input.KeyCode.Name] ~= nil then
+            FlyKeys[input.KeyCode.Name] = true
+        end
+    end)
+    connections.flyEnd = UserInputService.InputEnded:Connect(function(input)
+        if FlyKeys[input.KeyCode.Name] ~= nil then
+            FlyKeys[input.KeyCode.Name] = false
+        end
+    end)
+    connections.flyStep = RunService.RenderStepped:Connect(function(dt)
+        if not (State.Fly and clientHRP) then return end
+        local d = vectorFromKeys(FlyKeys, true)
+        if d.Magnitude > 0 then
+            local cam = workspace.CurrentCamera
+            if not cam then return end
+            local world = cam.CFrame:VectorToWorldSpace(d)
+            clientHRP.CFrame = clientHRP.CFrame + world.Unit * math.max(Config.FlySpeed, 5) * dt
+        end
+    end)
+end
+
+local function stopFly()
+    for k in pairs(FlyKeys) do FlyKeys[k] = false end
+    disconnect("flyStep")
+    disconnect("flyBegin")
+    disconnect("flyEnd")
+end
+
+local originalWalkSpeed
+local function applySpeedToCharacter(char)
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        if originalWalkSpeed == nil then originalWalkSpeed = hum.WalkSpeed end
+        hum.WalkSpeed = math.max(Config.WalkSpeed, 8)
+    end
+end
+
+local function startSpeed()
+    applySpeedToCharacter(client)
+    disconnect("speedChar")
+    connections.speedChar = localPlayer.CharacterAdded:Connect(function(newChar)
+        task.wait(0.3)
+        if State.Speed then applySpeedToCharacter(newChar) end
+    end)
+end
+
+local function stopSpeed()
+    disconnect("speedChar")
+    if client then
+        local hum = client:FindFirstChildOfClass("Humanoid")
+        if hum and originalWalkSpeed then hum.WalkSpeed = originalWalkSpeed end
+    end
+end
+
+local originalJumpPower
+local function applyJumpToCharacter(char)
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        if originalJumpPower == nil then originalJumpPower = hum.JumpPower end
+        pcall(function() hum.UseJumpPower = true end)
+        hum.JumpPower = math.max(Config.JumpPower, 20)
+    end
+end
+
+local function startHighJump()
+    applyJumpToCharacter(client)
+    disconnect("jumpChar")
+    connections.jumpChar = localPlayer.CharacterAdded:Connect(function(newChar)
+        task.wait(0.3)
+        if State.HighJump then applyJumpToCharacter(newChar) end
+    end)
+end
+
+local function stopHighJump()
+    disconnect("jumpChar")
+    if client then
+        local hum = client:FindFirstChildOfClass("Humanoid")
+        if hum and originalJumpPower then hum.JumpPower = originalJumpPower end
+    end
+end
+
+local function startFastFall()
+    if connections.fastFallStep then return end
+    connections.fastFallStep = RunService.RenderStepped:Connect(function()
+        if not (State.FastFall and client and clientHRP) then return end
+        local hum = client:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+        local s = hum:GetState()
+        if s == Enum.HumanoidStateType.Freefall
+           and clientHRP.AssemblyLinearVelocity.Y < 0 then
+            clientHRP.CFrame = clientHRP.CFrame + Vector3.new(0, -math.max(Config.FastFallStrength, 1), 0)
+        end
+    end)
+end
+
+local function stopFastFall()
+    disconnect("fastFallStep")
+end
+
+local function applyNoRotateToCharacter(char)
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then pcall(function() hum.AutoRotate = false end) end
+end
+
+local function startNoRotate()
+    applyNoRotateToCharacter(client)
+    disconnect("noRotateChar")
+    connections.noRotateChar = localPlayer.CharacterAdded:Connect(function(newChar)
+        task.wait(0.3)
+        if State.NoRotate then applyNoRotateToCharacter(newChar) end
+    end)
+end
+
+local function stopNoRotate()
+    disconnect("noRotateChar")
+    if client then
+        local hum = client:FindFirstChildOfClass("Humanoid")
+        if hum then pcall(function() hum.AutoRotate = true end) end
+    end
+end
+
+local blinkPart
+local function startBlink()
+    if not clientHRP then
+        Notify("SkyWars", "Blink: ждём персонажа.")
+        State.Blink = false
+        return
+    end
+    if connections.blinkStep then return end
+    pcall(function() clientHRP.Anchored = true end)
+
+    blinkPart = Instance.new("Part")
+    blinkPart.Name         = "AS_BlinkMarker"
+    blinkPart.Size         = Vector3.new(2, 2, 2)
+    blinkPart.Anchored     = true
+    blinkPart.CanCollide   = false
+    blinkPart.Transparency = 0.4
+    blinkPart.Color        = Color3.fromRGB(255, 255, 0)
+    blinkPart.Material     = Enum.Material.Neon
+    blinkPart.CFrame       = clientHRP.CFrame
+    blinkPart.Parent       = workspace
+
+    connections.blinkBegin = UserInputService.InputBegan:Connect(function(input, gp)
+        if gp or not State.Blink then return end
+        if BlinkKeys[input.KeyCode.Name] ~= nil then
+            BlinkKeys[input.KeyCode.Name] = true
+        end
+    end)
+    connections.blinkEnd = UserInputService.InputEnded:Connect(function(input)
+        if BlinkKeys[input.KeyCode.Name] ~= nil then
+            BlinkKeys[input.KeyCode.Name] = false
+        end
+    end)
+    connections.blinkStep = RunService.RenderStepped:Connect(function(dt)
+        if not (State.Blink and blinkPart) then return end
+        local d = vectorFromKeys(BlinkKeys, false)
+        if d.Magnitude > 0 then
+            local cam = workspace.CurrentCamera
+            if not cam then return end
+            local world = cam.CFrame:VectorToWorldSpace(d)
+            blinkPart.CFrame = blinkPart.CFrame + world.Unit * math.max(Config.BlinkSpeed, 5) * dt
+        end
+    end)
+end
+
+local function stopBlink()
+    for k in pairs(BlinkKeys) do BlinkKeys[k] = false end
+    disconnect("blinkStep")
+    disconnect("blinkBegin")
+    disconnect("blinkEnd")
+    if blinkPart and clientHRP then
+        pcall(function()
+            clientHRP.Anchored = false
+            clientHRP.CFrame   = blinkPart.CFrame
+        end)
+    end
+    if blinkPart then
+        pcall(function() blinkPart:Destroy() end)
+        blinkPart = nil
+    end
+end
+
+local function nearestEnemyHRP()
+    if not clientHRP then return nil end
+    local best, bestDist
+    local range = math.max(Config.TPauraRange, 4)
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= localPlayer and p.Character then
+            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+            local hum = p.Character:FindFirstChildOfClass("Humanoid")
+            if hrp and hum and hum.Health > 0 then
+                local d = (hrp.Position - clientHRP.Position).Magnitude
+                if d <= range and (not bestDist or d < bestDist) then
+                    best, bestDist = hrp, d
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function startTPaura()
+    if connections.tpauraStep then return end
+    connections.tpauraStep = RunService.Heartbeat:Connect(function()
+        if not (State.TPaura and client and clientHRP) then return end
+        local hum = client:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then return end
+        local target = nearestEnemyHRP()
+        if target then
+            local pos = target.Position - Vector3.new(0, 4, 0)
+            clientHRP.CFrame = CFrame.new(pos, target.Position)
+        end
+    end)
+end
+
+local function stopTPaura()
+    disconnect("tpauraStep")
+end
+
+-- ==================== COMBAT FEATURES ====================
+local function startAutoClicker()
+    if activeFeatures.AutoClicker then return end
+    activeFeatures.AutoClicker = task.spawn(function()
+        while State.AutoClicker do
+            if client then
+                local tool = client:FindFirstChildOfClass("Tool")
+                if tool then
+                    pcall(function() tool:Activate() end)
+                end
+            end
+            local cps = math.clamp(Config.AutoClickCPS, 1, 30)
+            task.wait(1 / cps)
+        end
+        activeFeatures.AutoClicker = nil
+    end)
+end
+
+local function stopAutoClicker()
+    activeFeatures.AutoClicker = nil
+end
+
+local function startAutoBow()
+    if activeFeatures.AutoBow then return end
+    activeFeatures.AutoBow = task.spawn(function()
+        while State.AutoBow do
+            if client then
+                local bow = client:FindFirstChild("Bow")
+                if bow then
+                    local serverControl = bow:FindFirstChild("ServerControl")
+                    if serverControl then
+                        pcall(function()
+                            serverControl:InvokeServer(true)
+                            task.wait(0.1)
+                            serverControl:InvokeServer(false)
+                        end)
+                    end
+                end
+            end
+            task.wait(1)
+        end
+        activeFeatures.AutoBow = nil
+    end)
+end
+
+local function stopAutoBow()
+    activeFeatures.AutoBow = nil
+end
+
+-- ==================== VISUAL FEATURES ====================
+local originalFOV
+local function startFOV()
+    local cam = workspace.CurrentCamera
+    if not cam then return end
+    if originalFOV == nil then originalFOV = cam.FieldOfView end
+    cam.FieldOfView = math.clamp(Config.FovValue, 1, 120)
+end
+
+local function stopFOV()
+    local cam = workspace.CurrentCamera
+    if cam and originalFOV then
+        pcall(function() cam.FieldOfView = originalFOV end)
+    end
+end
+
+local function applyCham(plr)
+    if plr == localPlayer or not plr.Character then return end
+    local char = plr.Character
+    if char:FindFirstChild("AS_Cham") then return end
+    local h = Instance.new("Highlight")
+    h.Name              = "AS_Cham"
+    h.FillColor         = Color3.fromRGB(255, 100, 100)
+    h.OutlineColor      = Color3.fromRGB(255, 255, 255)
+    h.FillTransparency  = 0.5
+    h.OutlineTransparency = 0
+    h.Adornee           = char
+    h.Parent            = char
+end
+
+local function clearCham(plr)
+    if not plr.Character then return end
+    local h = plr.Character:FindFirstChild("AS_Cham")
+    if h then pcall(function() h:Destroy() end) end
+end
+
+local function startChams()
+    for _, p in ipairs(Players:GetPlayers()) do applyCham(p) end
+    disconnect("chamsPlayerAdded")
+    connections.chamsPlayerAdded = Players.PlayerAdded:Connect(function(p)
+        p.CharacterAdded:Connect(function()
+            if State.Chams then task.wait(1); applyCham(p) end
+        end)
+    end)
+    disconnect("chamsThread")
+    connections.chamsThread = task.spawn(function()
+        while State.Chams do
+            for _, p in ipairs(Players:GetPlayers()) do applyCham(p) end
+            task.wait(2)
+        end
+    end)
+end
+
+local function stopChams()
+    disconnect("chamsPlayerAdded")
+    disconnect("chamsThread")
+    for _, p in ipairs(Players:GetPlayers()) do clearCham(p) end
+end
+
+local function applyESP(plr)
+    if plr == localPlayer or not plr.Character then return end
+    local head = plr.Character:FindFirstChild("Head")
+    if not head or head:FindFirstChild("AS_ESP") then return end
+    local gui = Instance.new("BillboardGui")
+    gui.Name        = "AS_ESP"
+    gui.Adornee     = head
+    gui.AlwaysOnTop = true
+    gui.Size        = UDim2.new(0, 120, 0, 26)
+    gui.StudsOffset = Vector3.new(0, 3, 0)
+    local lbl = Instance.new("TextLabel")
+    lbl.Size                 = UDim2.new(1, 0, 1, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.TextColor3           = Color3.fromRGB(255, 255, 255)
+    lbl.TextStrokeTransparency = 0.4
+    lbl.Font                 = Enum.Font.GothamBold
+    lbl.TextSize             = 13
+    lbl.Text                 = plr.Name
+    lbl.Parent               = gui
+    gui.Parent = head
+end
+
+local function clearESP(plr)
+    if not plr.Character then return end
+    local head = plr.Character:FindFirstChild("Head")
+    if head then
+        local g = head:FindFirstChild("AS_ESP")
+        if g then pcall(function() g:Destroy() end) end
+    end
+end
+
+local function startESP()
+    for _, p in ipairs(Players:GetPlayers()) do applyESP(p) end
+    disconnect("espThread")
+    connections.espThread = task.spawn(function()
+        while State.ESP do
+            for _, p in ipairs(Players:GetPlayers()) do
+                applyESP(p)
+                if Config.EspShowDistance and p.Character and clientHRP then
+                    local head = p.Character:FindFirstChild("Head")
+                    if head then
+                        local g = head:FindFirstChild("AS_ESP")
+                        if g then
+                            local lbl = g:FindFirstChildOfClass("TextLabel")
+                            if lbl then
+                                local d = (head.Position - clientHRP.Position).Magnitude
+                                lbl.Text = string.format("%s · %dm", p.Name, math.floor(d))
+                            end
+                        end
+                    end
+                end
+            end
+            task.wait(0.3)
+        end
+    end)
+end
+
+local function stopESP()
+    disconnect("espThread")
+    for _, p in ipairs(Players:GetPlayers()) do clearESP(p) end
+end
+
+local oreHighlights = setmetatable({}, {__mode = "k"})
+
+local function applyOreHighlight(block)
+    if not block:IsA("BasePart") or block:FindFirstChild("AS_OreHL") then return end
+    local h = Instance.new("Highlight")
+    h.Name              = "AS_OreHL"
+    h.FillColor         = Color3.fromRGB(255, 200, 50)
+    h.OutlineColor      = Color3.fromRGB(255, 255, 255)
+    h.FillTransparency  = 0.6
+    h.OutlineTransparency = 0
+    h.Adornee           = block
+    h.Parent            = block
+    oreHighlights[block] = h
+end
+
+local function clearAllOreHighlights()
+    for blk, h in pairs(oreHighlights) do
+        if h then pcall(function() h:Destroy() end) end
+        oreHighlights[blk] = nil
+    end
+end
+
+local function startOreESP()
+    disconnect("oreEspThread")
+    connections.oreEspThread = task.spawn(function()
+        while State.OreESP do
+            if oresFolder then
+                for _, blk in ipairs(oresFolder:GetChildren()) do
+                    if blk.Name == "Block" then applyOreHighlight(blk) end
+                end
+            end
+            task.wait(1)
+        end
+    end)
+end
+
+local function stopOreESP()
+    disconnect("oreEspThread")
+    clearAllOreHighlights()
+end
+
+local originalOcclusion
+local function startNoCameraClip()
+    if originalOcclusion == nil then
+        originalOcclusion = localPlayer.DevCameraOcclusionMode
+    end
+    pcall(function()
+        localPlayer.DevCameraOcclusionMode = Enum.DevCameraOcclusionMode.Invisicam
+    end)
+end
+
+local function stopNoCameraClip()
+    if originalOcclusion then
+        pcall(function() localPlayer.DevCameraOcclusionMode = originalOcclusion end)
+    end
+end
+
+local function noRenderStep()
+    local gui = localPlayer:FindFirstChild("PlayerGui")
+    if not gui then return end
+    for _, child in ipairs(gui:GetChildren()) do
+        if child:IsA("ScreenGui") and child.Name == "ScreenGui" then
+            local shop = child:FindFirstChild("ShopGuiButtons")
+            if shop then pcall(function() shop:Destroy() end) end
+            local promo = child:FindFirstChild("PromoFrame")
+            if promo then pcall(function() promo:Destroy() end) end
+        end
+    end
+end
+
+local function startNoRender()
+    disconnect("noRenderThread")
+    connections.noRenderThread = task.spawn(function()
+        while State.NoRender do
+            pcall(noRenderStep)
+            task.wait(1)
+        end
+    end)
+end
+
+local function stopNoRender()
+    disconnect("noRenderThread")
+end
+
 local FEATURES = {
-    AutoFarm = { onStart = startAutoFarm,             onStop = stopAutoFarm  },
-    Noclip   = { onStart = startNoclip,               onStop = stopNoclip    },
-    AntiVoid = { onStart = ensureAntiVoid,            onStop = destroyAntiVoid },
+    AutoFarm     = { onStart = startAutoFarm,    onStop = stopAutoFarm    },
+    Noclip       = { onStart = startNoclip,      onStop = stopNoclip      },
+    AntiVoid     = { onStart = ensureAntiVoid,   onStop = destroyAntiVoid },
+
+    -- Movement
+    Fly          = { onStart = startFly,         onStop = stopFly         },
+    Speed        = { onStart = startSpeed,       onStop = stopSpeed       },
+    HighJump     = { onStart = startHighJump,    onStop = stopHighJump    },
+    FastFall     = { onStart = startFastFall,    onStop = stopFastFall    },
+    NoRotate     = { onStart = startNoRotate,    onStop = stopNoRotate    },
+    Blink        = { onStart = startBlink,       onStop = stopBlink       },
+    TPaura       = { onStart = startTPaura,      onStop = stopTPaura      },
+
+    -- Combat
+    AutoClicker  = { onStart = startAutoClicker, onStop = stopAutoClicker },
+    AutoBow      = { onStart = startAutoBow,     onStop = stopAutoBow     },
+
+    -- Visual
+    FOV          = { onStart = startFOV,         onStop = stopFOV         },
+    Chams        = { onStart = startChams,       onStop = stopChams       },
+    ESP          = { onStart = startESP,         onStop = stopESP         },
+    OreESP       = { onStart = startOreESP,      onStop = stopOreESP      },
+    NoCameraClip = { onStart = startNoCameraClip,onStop = stopNoCameraClip},
+    NoRender     = { onStart = startNoRender,    onStop = stopNoRender    },
 }
 
 local function toggleFeature(name, value)
@@ -390,9 +948,9 @@ end
 -- ==================== GLOBAL CLEANUP (для повторного запуска) ====================
 NS.cleanup = function()
     for name in pairs(State) do State[name] = false end
-    pcall(stopAutoFarm)
-    pcall(stopNoclip)
-    pcall(destroyAntiVoid)
+    for _, def in pairs(FEATURES) do
+        if def and def.onStop then pcall(def.onStop) end
+    end
     for k in pairs(connections) do disconnect(k) end
     if rescanThread then pcall(task.cancel, rescanThread) end
     if charAddedConn then pcall(function() charAddedConn:Disconnect() end) end
@@ -568,7 +1126,7 @@ kbdLabel.Parent = kbdChip
 local TABS_TOP = TITLE_H + 10
 local TAB_H = 32
 local TABS_PAD = 12
-local tabNames = { "Main", "Settings", "Info" }
+local tabNames = { "Main", "Movement", "Visual", "Settings", "Info" }
 
 local tabsBar = Instance.new("Frame")
 tabsBar.Size = UDim2.new(1, -TABS_PAD * 2, 0, TAB_H)
@@ -578,7 +1136,7 @@ tabsBar.Parent = main
 
 local tabsLayout = Instance.new("UIListLayout")
 tabsLayout.FillDirection = Enum.FillDirection.Horizontal
-tabsLayout.Padding = UDim.new(0, 6)
+tabsLayout.Padding = UDim.new(0, 4)
 tabsLayout.Parent = tabsBar
 
 local pages, tabButtons = {}, {}
@@ -594,15 +1152,16 @@ local function setActiveTab(name)
     end
 end
 
+local TAB_COUNT = #tabNames
 for i, tabName in ipairs(tabNames) do
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1/3, -4, 1, 0)
+    btn.Size = UDim2.new(1/TAB_COUNT, -4, 1, 0)
     btn.LayoutOrder = i
     btn.BackgroundColor3 = C.Surface
     btn.AutoButtonColor = false
     btn.Font = Enum.Font.GothamBold
     btn.Text = tabName
-    btn.TextSize = 12
+    btn.TextSize = 11
     btn.TextColor3 = C.TextMuted
     btn.Parent = tabsBar
     addCorner(btn, 6)
@@ -647,6 +1206,8 @@ local function createPage(name)
 end
 
 local pageMain     = createPage("Main")
+local pageMovement = createPage("Movement")
+local pageVisual   = createPage("Visual")
 local pageSettings = createPage("Settings")
 local pageInfo     = createPage("Info")
 
@@ -940,6 +1501,31 @@ createToggle(pageMain, "Auto Farm", "AutoFarm")
 createToggle(pageMain, "Noclip",    "Noclip")
 createToggle(pageMain, "Anti-Void Platform", "AntiVoid")
 
+createSection(pageMain, "Combat")
+createToggle(pageMain, "Auto Clicker", "AutoClicker")
+createToggle(pageMain, "Auto Bow",     "AutoBow")
+
+createSection(pageMovement, "Movement")
+createToggle(pageMovement, "Fly (WASD + Space/Shift)", "Fly")
+createToggle(pageMovement, "Speed",        "Speed")
+createToggle(pageMovement, "High Jump",    "HighJump")
+createToggle(pageMovement, "Fast Fall",    "FastFall")
+createToggle(pageMovement, "No Rotate",    "NoRotate")
+createToggle(pageMovement, "Blink (WASD marker)", "Blink")
+createToggle(pageMovement, "TP Aura",      "TPaura")
+
+createSection(pageVisual, "Camera")
+createToggle(pageVisual, "FOV Override",     "FOV")
+createToggle(pageVisual, "No Camera Clip",   "NoCameraClip")
+
+createSection(pageVisual, "ESP")
+createToggle(pageVisual, "Player ESP",       "ESP")
+createToggle(pageVisual, "Chams (Highlight)","Chams")
+createToggle(pageVisual, "Ore ESP",          "OreESP")
+
+createSection(pageVisual, "UI / Misc")
+createToggle(pageVisual, "No Render (hide shop GUI)", "NoRender")
+
 createSection(pageSettings, "Farm")
 createInput(pageSettings, "Farm radius (studs)", Config.FarmRadius, function(v)
     Config.FarmRadius = math.clamp(tonumber(v) or DEFAULT_CONFIG.FarmRadius, 10, 2000)
@@ -962,6 +1548,51 @@ createConfigToggle(pageSettings, "Enable Anti-Void", "AntiVoidEnabled", function
     end
 end)
 
+createSection(pageSettings, "Movement tuning")
+createInput(pageSettings, "Fly speed (studs/s)", Config.FlySpeed, function(v)
+    Config.FlySpeed = math.clamp(tonumber(v) or DEFAULT_CONFIG.FlySpeed, 5, 500)
+    saveConfig()
+end)
+createInput(pageSettings, "Walk speed (studs/s)", Config.WalkSpeed, function(v)
+    Config.WalkSpeed = math.clamp(tonumber(v) or DEFAULT_CONFIG.WalkSpeed, 8, 200)
+    saveConfig()
+    if State.Speed then applySpeedToCharacter(client) end
+end)
+createInput(pageSettings, "Jump power", Config.JumpPower, function(v)
+    Config.JumpPower = math.clamp(tonumber(v) or DEFAULT_CONFIG.JumpPower, 20, 500)
+    saveConfig()
+    if State.HighJump then applyJumpToCharacter(client) end
+end)
+createInput(pageSettings, "Fast Fall (studs)", Config.FastFallStrength, function(v)
+    Config.FastFallStrength = math.clamp(tonumber(v) or DEFAULT_CONFIG.FastFallStrength, 1, 50)
+    saveConfig()
+end)
+createInput(pageSettings, "Blink speed (studs/s)", Config.BlinkSpeed, function(v)
+    Config.BlinkSpeed = math.clamp(tonumber(v) or DEFAULT_CONFIG.BlinkSpeed, 5, 500)
+    saveConfig()
+end)
+createInput(pageSettings, "TP Aura range", Config.TPauraRange, function(v)
+    Config.TPauraRange = math.clamp(tonumber(v) or DEFAULT_CONFIG.TPauraRange, 4, 200)
+    saveConfig()
+end)
+
+createSection(pageSettings, "Combat tuning")
+createInput(pageSettings, "Auto Clicker (CPS)", Config.AutoClickCPS, function(v)
+    Config.AutoClickCPS = math.clamp(tonumber(v) or DEFAULT_CONFIG.AutoClickCPS, 1, 30)
+    saveConfig()
+end)
+
+createSection(pageSettings, "Visual tuning")
+createInput(pageSettings, "FOV value", Config.FovValue, function(v)
+    Config.FovValue = math.clamp(tonumber(v) or DEFAULT_CONFIG.FovValue, 30, 120)
+    saveConfig()
+    if State.FOV then
+        local cam = workspace.CurrentCamera
+        if cam then pcall(function() cam.FieldOfView = Config.FovValue end) end
+    end
+end)
+createConfigToggle(pageSettings, "ESP shows distance", "EspShowDistance")
+
 createSection(pageInfo, "About")
 createReadOnlyRow(pageInfo, "Script",       "SkyWars")
 createReadOnlyRow(pageInfo, "Version",      VERSION)
@@ -980,7 +1611,7 @@ do
     lbl.TextWrapped = true
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.TextYAlignment = Enum.TextYAlignment.Top
-    lbl.Text = "  · Auto Farm включает Noclip и Anti-Void автоматически.\n  · Карта обновляется между раундами — настраивай в Settings.\n  · Anti-Detect Jitter добавляет шум в Tween и позицию."
+    lbl.Text = "  · Auto Farm включает Noclip и Anti-Void автоматически.\n  · Карта обновляется между раундами — настраивай в Settings.\n  · Fly/Blink — WASD; Fly: Space/Shift ↑↓. Blink возвращает на маркер при выключении.\n  · Anti-Detect Jitter добавляет шум в Tween и позицию."
     lbl.Parent = pageInfo
     addCorner(lbl, 8)
     local pad = Instance.new("UIPadding", lbl)
