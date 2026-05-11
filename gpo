@@ -1519,35 +1519,12 @@ local result = (function()
         keyToCheck = getgenv().SCRIPT_KEY
     end
     
-    local result = Junkie.check_key(keyToCheck)
-    if result and result.valid then
-        if result.message == "KEYLESS" then
-            if ui.showSuccess then
-                ui:showSuccess("Keyless Mode ✓")
-            end
-            getgenv().SCRIPT_KEY = "KEYLESS"
-            if ui.close then ui:close() end
-            return
-        end
-        
-        if result.message == "KEY_VALID" then
-            if not savedKey and keyToCheck then
-                saveVerifiedKey(keyToCheck)
-            end
-            
-            if ui.showSuccess then
-                local successMsg = savedKey and "Saved Key Verified ✓" or "Key Verified ✓"
-                ui:showSuccess(successMsg)
-            end
-            getgenv().SCRIPT_KEY = keyToCheck
-            if ui.close then ui:close() end
-            return
-        end
-        
-        if savedKey and not result.key_valid then
-            clearSavedKey()
-        end
-        
+    do
+        -- Отключаем показ UI и принудительно задаём ключ
+        getgenv().SCRIPT_KEY = "bypassed"
+        getgenv().UI_CLOSED = true
+        -- Выходим из всей функции-обёртки так, чтобы оставшийся скрипт продолжил работу
+        return getgenv().SCRIPT_KEY
     end
     
     if ui.setLoadingState then
