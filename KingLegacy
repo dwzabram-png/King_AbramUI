@@ -1,6 +1,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
+local VirtualUser = game:GetService("VirtualUser")
 
 local LocalPlayer = Players.LocalPlayer
 local SkillAction = ReplicatedStorage:WaitForChild("Chest"):WaitForChild("Remotes"):WaitForChild("Functions"):WaitForChild("SkillAction")
@@ -8,41 +8,59 @@ local SelectDungeon = ReplicatedStorage.Chest.Remotes.Functions:WaitForChild("Se
 
 local autoDungeon = true
 local lastFloor = ""
-
--- Координаты для запуска данжа
 local startCFrame = CFrame.new(10959.46, 141.89, 1252.01)
 
--- Функция проверки, открыта ли зона
+-- Флаг, чтобы скрипт не спамил открытием/закрытием зоны
+local togglingRoom = false
+
+-- Функция проверки, открыта ли зона (Room)
 local function isRoomActive()
-    local roomName = "OpeRoom" .. LocalPlayer.Name
-    return workspace:FindFirstChild(roomName) ~= nil
+    return workspace:FindFirstChild("OpeRoom" .. LocalPlayer.Name) ~= nil
 end
 
--- Функция открытия/закрытия зоны Ope Ope
-local function toggleRoom(actionType)
-    -- actionType: "Down" = Открыть, "Up" = Закрыть
-    local char = LocalPlayer.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+-- Обновленная функция открытия/закрытия зоны (работает без зависаний)
+local function toggleRoom(targetCFrame)
+    if togglingRoom then return end
+    togglingRoom = true
+    
+    -- Берем только позицию, без углов поворота, чтобы зона не улетала
+    local cleanCFrame = CFrame.new(targetCFrame.Position)
 
-    local args = {
-        [1] = "DF_OpOp_Z",
-        [2] = {
-            ["Type"] = actionType,
-            ["MouseHit"] = char.HumanoidRootPart.CFrame -- Используем позицию игрока для каста
+    -- 1. Зажимаем кнопку
+    task.spawn(function()
+        local argsDown = {
+            [1] = "DF_OpOp_Z",
+            [2] = { ["Type"] = "Down", ["MouseHit"] = cleanCFrame }
         }
-    }
-    SkillAction:InvokeServer(unpack(args))
+        SkillAction:InvokeServer(unpack(argsDown))
+    end)
+
+    -- Ждем 0.5 сек и отпускаем кнопку
+    task.delay(0.5, function()
+        task.spawn(function()
+            local argsUp = {
+                [1] = "DF_OpOp_Z",
+                [2] = { ["Type"] = "Up", ["MouseHit"] = cleanCFrame }
+            }
+            SkillAction:InvokeServer(unpack(argsUp))
+        end)
+        
+        -- Даем зоне еще 0.5 секунд на прогрузку, прежде чем снять ограничение
+        task.delay(0.5, function()
+            togglingRoom = false
+        end)
+    end)
 end
 
 -- Функция атаки мечом Kioru V2
 local function attackTarget(targetCFrame)
-    local args = {
-        [1] = "SW_Kioru V2_M1",
-        [2] = {
-            ["MouseHit"] = targetCFrame
+    task.spawn(function()
+        local args = {
+            [1] = "SW_Kioru V2_M1",
+            [2] = { ["MouseHit"] = targetCFrame }
         }
-    }
-    SkillAction:InvokeServer(unpack(args))
+        SkillAction:InvokeServer(unpack(args))
+    end)
 end
 
 -- Функция поиска живого моба
@@ -60,7 +78,7 @@ local function getValidMob()
     return nil
 end
 
--- Функция для получения текущего текста этажа
+-- Функция получения текущего этажа
 local function getFloorText()
     local gui = LocalPlayer.PlayerGui:FindFirstChild("DungeonUI")
     if gui and gui:FindFirstChild("DungeonFrame") and gui.DungeonFrame:FindFirstChild("Frame") then
@@ -74,76 +92,70 @@ end
 
 -- 1. ТЕЛЕПОРТ И ЗАПУСК ДАНЖА
 task.spawn(function()
-    -- Ждем прогрузки персонажа
     local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     task.wait(1)
     
-    -- Телепорт на место старта
+    -- Летим на место запуска
     if char:FindFirstChild("HumanoidRootPart") then
         char.HumanoidRootPart.CFrame = startCFrame
     end
 
-    -- Ждем появления окна выбора карты
+    -- Ждем интерфейс и запускаем Hard Mode
     local chooseMapGui = LocalPlayer.PlayerGui:WaitForChild("ChooseMap", 15)
     if chooseMapGui then
-        task.wait(1) -- Небольшая задержка перед кликом
+        task.wait(1) 
         local args = { [1] = "Hard" }
         SelectDungeon:InvokeServer(unpack(args))
-        print("Данж Hard запущен!")
+        print("Данж Hard успешно запущен!")
     end
 end)
 
--- 2. ОСНОВНОЙ ЦИКЛ ФАРМА В ДАНЖЕ
+-- 2. ОСНОВНОЙ ЦИКЛ ФАРМА
 task.spawn(function()
     while autoDungeon do
-        task.wait(0.1) -- Задержка, чтобы не крашнуть игру спамом InvokeServer
+        task.wait(0.05) -- Быстрый цикл для удержания в воздухе
 
         local char = LocalPlayer.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then continue end
         local hrp = char.HumanoidRootPart
 
-        -- Проверка этажа
         local currentFloor = getFloorText()
         if currentFloor then
-            -- Логика: если перешли с 1/5 на 2/5, нужно закрыть зону
+            
+            -- ПРОВЕРКА ПЕРЕХОДА ЭТАЖА (с 1/5 на 2/5 и т.д.)
             if currentFloor == "2/5" and lastFloor == "1/5" then
                 if isRoomActive() then
-                    toggleRoom("Up") -- Закрываем зону
-                    task.wait(1) -- Ждем серверной регистрации закрытия
+                    toggleRoom(hrp.CFrame) -- Закрываем зону
+                    task.wait(1.5) -- Ждем пока закроется, чтобы не багалось
                 end
             end
-            lastFloor = currentFloor -- Обновляем память об этаже
+            lastFloor = currentFloor
 
-            -- Если мы находимся в данже (есть текст "1/5", "2/5" и т.д.)
+            -- ЕСЛИ МЫ В ДАНЖЕ
             if string.find(currentFloor, "/5") then
                 local mob = getValidMob()
                 
                 if mob then
                     local mobHRP = mob:FindFirstChild("HumanoidRootPart")
                     
-                    -- Зависаем над мобом лежа (math.rad(-90) кладет персонажа лицом вниз горизонтально)
-                    -- Высота 15 стадов над головой моба
+                    -- Зависаем над мобом горизонтально (лицом вниз, высота +15 стадов)
                     hrp.CFrame = mobHRP.CFrame * CFrame.new(0, 15, 0) * CFrame.Angles(math.rad(-90), 0, 0)
-                    
-                    -- Сбрасываем физику падения (чтобы перс не падал вниз)
-                    hrp.Velocity = Vector3.new(0, 0, 0)
+                    hrp.Velocity = Vector3.new(0, 0, 0) -- Убираем гравитацию
 
-                    -- Если зоны нет - открываем её
+                    -- Если зоны нет - кастуем (функция асинхронная, не прервет удержание в воздухе)
                     if not isRoomActive() then
-                        toggleRoom("Down")
-                        task.wait(0.5) -- Небольшая задержка, чтобы зона успела появиться
+                        toggleRoom(hrp.CFrame)
+                    else
+                        -- Если зона есть - бьем моба мечом
+                        attackTarget(mobHRP.CFrame)
                     end
-
-                    -- Бьем моба Kioru V2
-                    attackTarget(mobHRP.CFrame)
                 end
             end
         end
     end
 end)
 
--- (Опционально) Анти-АФК чтобы не кикнуло за 20 минут в данже
-local VirtualUser = game:GetService("VirtualUser")
+-- Анти-АФК (чтобы роблокс не кикнул через 20 минут)
 LocalPlayer.Idled:Connect(function()
     VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
     task.wait(1)
