@@ -11,6 +11,7 @@ local autoDungeon = true
 local lastFloor = ""
 local startCFrame = CFrame.new(10959.46, 141.89, 1252.01)
 local togglingRoom = false
+local lastHealTime = 0 -- Таймер для КД хила
 
 -- 1. АКТИВАЦИЯ ВОЛИ ПРИ ЗАПУСКЕ
 task.spawn(function()
@@ -18,25 +19,67 @@ task.spawn(function()
     ArmamentEvent:FireServer()
 end)
 
+-- Функция авто-хила
+local function checkAndHeal()
+    -- Проверяем КД (60 секунд)
+    if tick() - lastHealTime < 60 then return end
+    
+    local currentHP = math.huge -- Изначально ставим бесконечность, чтобы не хилился без нужды
+
+    -- Пытаемся достать ХП из интерфейса (UI)
+    local gui = LocalPlayer.PlayerGui:FindFirstChild("MainGui")
+    if gui then
+        local healthFrame = gui:FindFirstChild("BaseFrame") 
+            and gui.BaseFrame:FindFirstChild("Frame") 
+            and gui.BaseFrame.Frame:FindFirstChild("HealthFrame")
+            
+        if healthFrame and healthFrame:FindFirstChild("HealthText") then
+            local text = healthFrame.HealthText.Text
+            -- Текст имеет вид "Health 50,100/100,000". Берем первую часть до "/"
+            local firstPart = text:split("/")[1]
+            if firstPart then
+                -- Убираем всё, кроме цифр (запятые, слово Health и т.д.)
+                local cleanNumbers = firstPart:gsub("%D", "")
+                currentHP = tonumber(cleanNumbers) or math.huge
+            end
+        end
+    end
+    
+    -- Если UI по какой-то причине сломался, берем ХП напрямую из Хуманоида
+    if currentHP == math.huge then
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("Humanoid") then
+            currentHP = char.Humanoid.Health
+        end
+    end
+
+    -- Если ХП меньше или равно 15 000, используем скилл RC
+    if currentHP <= 15000 then
+        print("Низкое здоровье! (" .. currentHP .. "). Использую хил RC.")
+        task.spawn(function()
+            SkillAction:InvokeServer("RC")
+        end)
+        lastHealTime = tick() -- Обновляем КД
+    end
+end
+
 -- Проверка зоны (Room)
 local function isRoomActive()
     return workspace:FindFirstChild("OpeRoom" .. LocalPlayer.Name) ~= nil
 end
 
--- Функция проверки КД через глобальную таблицу игры (_G.Cooldowns)
+-- Проверка КД в глобальной таблице игры
 local function isReady(skillCode)
-    -- skillCode это например "DFZ", "DFX", "DFC", "DFV" для фрукта
-    -- Для меча обычно используются коды типа "SWZ", "SWX" (если они есть в _G)
     if _G.Cooldowns and _G.Cooldowns[skillCode] then
-        return false -- Еще на КД
+        return false -- На КД
     end
-    return true -- Готово!
+    return true -- Готово
 end
 
--- Функция открытия/закрытия зоны
+-- Открытие/закрытие зоны
 local function toggleRoom(targetCFrame)
     if togglingRoom then return end
-    if not isReady("DFZ") then return end -- Не открываем, если Z на КД
+    if not isReady("DFZ") then return end 
     
     togglingRoom = true
     local cleanCFrame = CFrame.new(targetCFrame.Position)
@@ -49,7 +92,7 @@ local function toggleRoom(targetCFrame)
     end)
 end
 
--- Универсальная функция использования скилла
+-- Использование скилла
 local function useSkill(skillName, targetCFrame)
     task.spawn(function()
         SkillAction:InvokeServer(skillName, { ["Type"] = "Down", ["MouseHit"] = targetCFrame })
@@ -102,6 +145,19 @@ task.spawn(function()
         if not char or not char:FindFirstChild("HumanoidRootPart") then continue end
         local hrp = char.HumanoidRootPart
 
+        -- Проверяем хил в каждом цикле
+        checkAndHeal()
+
+        -- Анти-Дергание (Создаем BodyVelocity, чтобы персонаж не падал вниз)
+        local hoverFly = hrp:FindFirstChild("HoverVelocity")
+        if not hoverFly then
+            hoverFly = Instance.new("BodyVelocity")
+            hoverFly.Name = "HoverVelocity"
+            hoverFly.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+            hoverFly.Velocity = Vector3.new(0, 0, 0)
+            hoverFly.Parent = hrp
+        end
+
         local currentFloor = getFloorText()
         if currentFloor then
             if currentFloor ~= lastFloor then
@@ -115,8 +171,8 @@ task.spawn(function()
                     local mobHRP = mob:FindFirstChild("HumanoidRootPart")
                     local targetPos = mobHRP.CFrame
                     
+                    -- Позиционирование. Теперь BodyVelocity держит в воздухе плавно.
                     hrp.CFrame = targetPos * CFrame.new(0, 15, 0) * CFrame.Angles(math.rad(-90), 0, 0)
-                    hrp.Velocity = Vector3.new(0, 0, 0)
 
                     if not isRoomActive() then
                         toggleRoom(targetPos)
@@ -125,7 +181,6 @@ task.spawn(function()
                         SkillAction:InvokeServer("SW_Kioru V2_M1", { ["MouseHit"] = targetPos })
 
                         -- Проверка КД и использование скиллов МЕЧА
-                        -- (Для меча используем ручную проверку, так как кодов меча нет в декомпиляте)
                         if isReady("SWZ") then useSkill("SW_Kioru V2_Z", targetPos) end
                         if isReady("SWX") then useSkill("SW_Kioru V2_X", targetPos) end
 
