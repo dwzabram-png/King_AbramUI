@@ -411,6 +411,11 @@ local function farmStep()
         farmPlatform.CFrame = targetCF
     end
 
+    -- Disable Y-hold during tween so it doesn't fight with TweenService
+    if farmBodyPos and farmBodyPos.Parent then
+        farmBodyPos.MaxForce = Vector3.zero
+    end
+
     pcall(function() axe:Activate() end)
 
     local tweenTime = math.max(moveDist / speed * timeScale, 0.1)
@@ -427,6 +432,12 @@ local function farmStep()
     activeTween.Completed:Wait()
     activeTween = nil
 
+    -- Re-enable Y-hold: keeps player at block height while FireServer + wait run
+    if farmBodyPos and farmBodyPos.Parent then
+        farmBodyPos.Position = targetPos
+        farmBodyPos.MaxForce = Vector3.new(0, math.huge, 0)
+    end
+
     if not (block and block.Parent and State.AutoFarm) then return end
 
     axe = equipAxe()
@@ -441,6 +452,7 @@ end
 
 -- ==================== FEATURE LIFECYCLE ====================
 local farmPlatform  -- phantom platform Part, перемещается на каждый блок
+local farmBodyPos   -- BodyPosition (Y-only): holds player at block height between tweens
 
 local function startAutoFarm()
     if activeFeatures.AutoFarm then return end
@@ -459,6 +471,27 @@ local function startAutoFarm()
         farmPlatform.Parent = workspace
     end
 
+    -- BodyPosition (Y-only) prevents falling when a mined block disappears.
+    -- Starts disabled (MaxForce=zero); farmStep enables it after each tween.
+    if farmBodyPos then pcall(function() farmBodyPos:Destroy() end) end
+    if clientHRP then
+        farmBodyPos = Instance.new("BodyPosition")
+        farmBodyPos.MaxForce = Vector3.zero
+        farmBodyPos.P        = 10000
+        farmBodyPos.D        = 500
+        farmBodyPos.Position = clientHRP.Position
+        farmBodyPos.Parent   = clientHRP
+    end
+
+    -- Disable Freefall so Humanoid doesn't apply extra gravity when the block breaks
+    pcall(function()
+        local hum = getHumanoid()
+        if hum then
+            hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+            hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+        end
+    end)
+
     -- Защита от смерти: при получении урона восстанавливаем HP
     disconnect("autoFarmHealth")
     pcall(function()
@@ -476,9 +509,21 @@ local function startAutoFarm()
     connections.autoFarmRespawn = localPlayer.CharacterAdded:Connect(function()
         task.wait(0.5)
         if State.AutoFarm then
+            -- Re-create BodyPosition on new character
+            if farmBodyPos then pcall(function() farmBodyPos:Destroy() end) end
+            if clientHRP then
+                farmBodyPos = Instance.new("BodyPosition")
+                farmBodyPos.MaxForce = Vector3.zero
+                farmBodyPos.P        = 10000
+                farmBodyPos.D        = 500
+                farmBodyPos.Position = clientHRP.Position
+                farmBodyPos.Parent   = clientHRP
+            end
             pcall(function()
                 local hum = getHumanoid()
                 if hum then
+                    hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+                    hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
                     disconnect("autoFarmHealth")
                     connections.autoFarmHealth = hum.HealthChanged:Connect(function(hp)
                         if State.AutoFarm and hp < hum.MaxHealth then
@@ -520,6 +565,18 @@ local function stopAutoFarm()
     end
     disconnect("autoFarmRespawn")
     disconnect("autoFarmHealth")
+    if farmBodyPos then
+        pcall(function() farmBodyPos:Destroy() end)
+        farmBodyPos = nil
+    end
+    -- Re-enable Freefall so normal gameplay gravity works again
+    pcall(function()
+        local hum = getHumanoid()
+        if hum then
+            hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
+            hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
+        end
+    end)
     if farmPlatform then
         pcall(function() farmPlatform:Destroy() end)
         farmPlatform = nil
