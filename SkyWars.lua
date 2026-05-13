@@ -407,12 +407,14 @@ local function farmStep()
     local targetCF, targetPos = computeFarmTarget(block, posJitter)
     local moveDist  = (clientHRP.Position - targetPos).Magnitude
 
-    -- Перемещаем platform на блок (как в рабочем скрипте)
     if farmPlatform then
         farmPlatform.CFrame = targetCF
     end
 
     pcall(function() axe:Activate() end)
+
+    -- Отключаем hold на время tween чтобы не конфликтовал
+    farmHoldCF = nil
 
     local tweenTime = math.max(moveDist / speed * timeScale, 0.1)
     if activeTween then
@@ -430,7 +432,9 @@ local function farmStep()
 
     if not (block and block.Parent and State.AutoFarm) then return end
 
-    -- Пере-экипируем топор и ищем ремот после tween
+    -- Включаем hold на целевой позиции — теперь Stepped будет держать каждый кадр
+    farmHoldCF = targetCF
+
     axe = equipAxe()
     if not axe then return end
     remote = axe:FindFirstChildWhichIsA("RemoteEvent")
@@ -443,25 +447,7 @@ end
 
 -- ==================== FEATURE LIFECYCLE ====================
 local farmPlatform  -- phantom platform Part, перемещается на каждый блок
-
-local function applyFarmAntiGravity(on)
-    if not clientHRP then return end
-    pcall(function()
-        if on then
-            local bv = clientHRP:FindFirstChild("AS_FarmBV")
-            if not bv then
-                bv = Instance.new("BodyVelocity")
-                bv.Name = "AS_FarmBV"
-                bv.Velocity = Vector3.zero
-                bv.MaxForce = Vector3.new(0, math.huge, 0)
-                bv.Parent = clientHRP
-            end
-        else
-            local bv = clientHRP:FindFirstChild("AS_FarmBV")
-            if bv then bv:Destroy() end
-        end
-    end)
-end
+local farmHoldCF    -- текущая целевая CFrame, держим каждый кадр
 
 local function startAutoFarm()
     if activeFeatures.AutoFarm then return end
@@ -469,7 +455,14 @@ local function startAutoFarm()
     startNoclip()
     refreshMap()
 
-    applyFarmAntiGravity(true)
+    -- Per-frame CFrame hold: каждый кадр держим игрока на позиции блока.
+    -- Предотвращает падение когда блок под игроком разрушается.
+    disconnect("farmHold")
+    connections.farmHold = RunService.Stepped:Connect(function()
+        if farmHoldCF and clientHRP and State.AutoFarm then
+            pcall(function() clientHRP.CFrame = farmHoldCF end)
+        end
+    end)
 
     -- Создаём platform Part для позиционирования на блоке
     if not farmPlatform or not farmPlatform.Parent then
@@ -499,7 +492,6 @@ local function startAutoFarm()
     connections.autoFarmRespawn = localPlayer.CharacterAdded:Connect(function()
         task.wait(0.5)
         if State.AutoFarm then
-            applyFarmAntiGravity(true)
             pcall(function()
                 local hum = getHumanoid()
                 if hum then
@@ -544,7 +536,8 @@ local function stopAutoFarm()
     end
     disconnect("autoFarmRespawn")
     disconnect("autoFarmHealth")
-    applyFarmAntiGravity(false)
+    disconnect("farmHold")
+    farmHoldCF = nil
     if farmPlatform then
         pcall(function() farmPlatform:Destroy() end)
         farmPlatform = nil
