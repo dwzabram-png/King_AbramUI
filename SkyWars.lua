@@ -413,9 +413,6 @@ local function farmStep()
 
     pcall(function() axe:Activate() end)
 
-    -- Отключаем hold на время tween чтобы не конфликтовал
-    farmHoldCF = nil
-
     local tweenTime = math.max(moveDist / speed * timeScale, 0.1)
     if activeTween then
         pcall(function() activeTween:Cancel() end)
@@ -432,9 +429,6 @@ local function farmStep()
 
     if not (block and block.Parent and State.AutoFarm) then return end
 
-    -- Включаем hold на целевой позиции — теперь Stepped будет держать каждый кадр
-    farmHoldCF = targetCF
-
     axe = equipAxe()
     if not axe then return end
     remote = axe:FindFirstChildWhichIsA("RemoteEvent")
@@ -447,22 +441,12 @@ end
 
 -- ==================== FEATURE LIFECYCLE ====================
 local farmPlatform  -- phantom platform Part, перемещается на каждый блок
-local farmHoldCF    -- текущая целевая CFrame, держим каждый кадр
 
 local function startAutoFarm()
     if activeFeatures.AutoFarm then return end
     ensureAntiVoid()
     startNoclip()
     refreshMap()
-
-    -- Per-frame CFrame hold: каждый кадр держим игрока на позиции блока.
-    -- Предотвращает падение когда блок под игроком разрушается.
-    disconnect("farmHold")
-    connections.farmHold = RunService.Stepped:Connect(function()
-        if farmHoldCF and clientHRP and State.AutoFarm then
-            pcall(function() clientHRP.CFrame = farmHoldCF end)
-        end
-    end)
 
     -- Создаём platform Part для позиционирования на блоке
     if not farmPlatform or not farmPlatform.Parent then
@@ -536,8 +520,6 @@ local function stopAutoFarm()
     end
     disconnect("autoFarmRespawn")
     disconnect("autoFarmHealth")
-    disconnect("farmHold")
-    farmHoldCF = nil
     if farmPlatform then
         pcall(function() farmPlatform:Destroy() end)
         farmPlatform = nil
