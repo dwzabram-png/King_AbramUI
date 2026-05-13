@@ -68,6 +68,19 @@ local function isRoomActive()
     return workspace:FindFirstChild("OpeRoom" .. LocalPlayer.Name) ~= nil
 end
 
+-- Проверка, находится ли игрок внутри зоны (радиус 375)
+local function isPlayerInRoom()
+    local room = workspace:FindFirstChild("OpeRoom" .. LocalPlayer.Name)
+    if not room then return false end
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return false end
+    local playerPos = char.HumanoidRootPart.Position
+    local roomPos = room.Position
+    local radius = math.max(room.Size.X, room.Size.Z) / 2
+    local distance = (roomPos - playerPos).Magnitude
+    return distance <= radius
+end
+
 -- Проверка КД в глобальной таблице игры
 local function isReady(skillCode)
     if _G.Cooldowns and _G.Cooldowns[skillCode] then
@@ -186,6 +199,10 @@ task.spawn(function()
 
                     if not isRoomActive() then
                         toggleRoom(targetPos)
+                    elseif isRoomActive() and not isPlayerInRoom() then
+                        toggleRoom(hrp.CFrame)
+                        task.wait(1)
+                        toggleRoom(hrp.CFrame)
                     else
                         -- Бьем M1 всегда
                         SkillAction:InvokeServer("SW_Kioru V2_M1", { ["MouseHit"] = targetPos })
