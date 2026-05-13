@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>King AbramUI – Delta Bridge Dashboard</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      min-height: 100vh;
+    }
+    header {
+      background: linear-gradient(135deg, #161b22, #1a1f2b);
+      border-bottom: 1px solid #30363d;
+      padding: 20px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    header h1 { font-size: 1.4rem; color: #58a6ff; }
+    header .status {
+      margin-left: auto;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .online  { background: #238636; color: #fff; }
+    .offline { background: #da3633; color: #fff; }
+
+    .container { max-width: 1000px; margin: 0 auto; padding: 24px; }
+
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .card h2 { font-size: 1rem; color: #58a6ff; margin-bottom: 12px; }
+
+    textarea {
+      width: 100%;
+      height: 160px;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      color: #c9d1d9;
+      border-radius: 6px;
+      padding: 12px;
+      font-family: 'Fira Code', monospace;
+      font-size: 0.85rem;
+      resize: vertical;
+    }
+    input[type="text"] {
+      width: 100%;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      color: #c9d1d9;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 0.85rem;
+      margin-bottom: 8px;
+    }
+
+    button {
+      background: #238636;
+      color: #fff;
+      border: none;
+      padding: 8px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.85rem;
+      margin-top: 8px;
+    }
+    button:hover { background: #2ea043; }
+    button.danger { background: #da3633; }
+    button.danger:hover { background: #f85149; }
+
+    .log {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 12px;
+      max-height: 300px;
+      overflow-y: auto;
+      font-family: 'Fira Code', monospace;
+      font-size: 0.8rem;
+      white-space: pre-wrap;
+    }
+    .log-entry { padding: 4px 0; border-bottom: 1px solid #21262d; }
+    .log-entry:last-child { border-bottom: none; }
+    .success { color: #3fb950; }
+    .error   { color: #f85149; }
+    .pending { color: #d29922; }
+
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
+
+    .stats { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+    .stat {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 16px 20px;
+      flex: 1;
+      min-width: 120px;
+      text-align: center;
+    }
+    .stat .num { font-size: 1.8rem; font-weight: 700; color: #58a6ff; }
+    .stat .label { font-size: 0.75rem; color: #8b949e; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>King AbramUI – Delta Bridge</h1>
+    <span class="status online" id="statusBadge">CONNECTED</span>
+  </header>
+
+  <div class="container">
+    <div class="stats">
+      <div class="stat"><div class="num" id="queueCount">0</div><div class="label">Queue</div></div>
+      <div class="stat"><div class="num" id="resultCount">0</div><div class="label">Results</div></div>
+      <div class="stat"><div class="num" id="sessionCount">0</div><div class="label">Sessions</div></div>
+    </div>
+
+    <div class="card">
+      <h2>Push Script to Delta</h2>
+      <input type="text" id="scriptName" placeholder="Script name (optional)" />
+      <textarea id="scriptInput" placeholder="-- Paste your Luau script here&#10;print('Hello from Bridge!')"></textarea>
+      <button onclick="pushScript()">Push to Delta</button>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Script Queue</h2>
+        <div class="log" id="queueLog">No scripts in queue.</div>
+        <button class="danger" onclick="clearQueue()">Clear Queue</button>
+      </div>
+      <div class="card">
+        <h2>Execution Results</h2>
+        <div class="log" id="resultLog">No results yet.</div>
+        <button class="danger" onclick="clearResults()">Clear Results</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Live Event Stream</h2>
+      <div class="log" id="streamLog">Connecting to event stream...</div>
+    </div>
+  </div>
+
+  <script>
+    const API = window.location.origin;
+    let eventSource;
+
+    async function fetchJSON(url, opts) {
+      const r = await fetch(url, opts);
+      return r.json();
+    }
+
+    async function pushScript() {
+      const script = document.getElementById("scriptInput").value.trim();
+      const name = document.getElementById("scriptName").value.trim();
+      if (!script) return alert("Script is empty");
+      const body = { script, name: name || undefined };
+      const res = await fetchJSON(API + "/api/push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        document.getElementById("scriptInput").value = "";
+        document.getElementById("scriptName").value = "";
+        refresh();
+      }
+    }
+
+    async function clearQueue() {
+      await fetchJSON(API + "/api/queue", { method: "DELETE" });
+      refresh();
+    }
+
+    async function clearResults() {
+      await fetchJSON(API + "/api/results", { method: "DELETE" });
+      refresh();
+    }
+
+    async function refresh() {
+      const [q, r, s] = await Promise.all([
+        fetchJSON(API + "/api/queue"),
+        fetchJSON(API + "/api/results"),
+        fetchJSON(API + "/api/sessions"),
+      ]);
+
+      document.getElementById("queueCount").textContent = q.count;
+      document.getElementById("resultCount").textContent = r.count;
+      document.getElementById("sessionCount").textContent = s.count;
+
+      const qLog = document.getElementById("queueLog");
+      if (q.count === 0) {
+        qLog.innerHTML = "No scripts in queue.";
+      } else {
+        qLog.innerHTML = q.queue.map(s => {
+          const cls = s.status === "pending" ? "pending" : s.status === "success" ? "success" : "error";
+          return `<div class="log-entry"><span class="${cls}">[${s.status}]</span> ${s.name} – ${s.id.slice(0,8)}</div>`;
+        }).join("");
+      }
+
+      const rLog = document.getElementById("resultLog");
+      if (r.count === 0) {
+        rLog.innerHTML = "No results yet.";
+      } else {
+        rLog.innerHTML = r.results.map(res => {
+          const cls = res.success ? "success" : "error";
+          const msg = res.success ? res.output.slice(0, 200) : res.error;
+          return `<div class="log-entry"><span class="${cls}">[${res.success ? "OK" : "ERR"}]</span> ${res.scriptId.slice(0,8)} – ${msg}</div>`;
+        }).join("");
+      }
+    }
+
+    function connectStream() {
+      const log = document.getElementById("streamLog");
+      eventSource = new EventSource(API + "/api/stream");
+
+      eventSource.onmessage = (ev) => {
+        const data = JSON.parse(ev.data);
+        const line = document.createElement("div");
+        line.className = "log-entry";
+        if (data.type === "result") {
+          line.className += data.payload.success ? " success" : " error";
+        }
+        line.textContent = `[${new Date().toLocaleTimeString()}] ${data.type}: ${JSON.stringify(data.payload).slice(0, 120)}`;
+        log.prepend(line);
+        refresh();
+      };
+
+      eventSource.onerror = () => {
+        document.getElementById("statusBadge").className = "status offline";
+        document.getElementById("statusBadge").textContent = "DISCONNECTED";
+      };
+
+      eventSource.onopen = () => {
+        document.getElementById("statusBadge").className = "status online";
+        document.getElementById("statusBadge").textContent = "CONNECTED";
+      };
+    }
+
+    connectStream();
+    refresh();
+    setInterval(refresh, 5000);
+  </script>
+</body>
+</html>
