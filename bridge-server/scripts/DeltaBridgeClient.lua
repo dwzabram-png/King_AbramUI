@@ -16,7 +16,9 @@
 -- ══════════════════════════════════════════════════════════════════════
 -- CONFIGURATION – Set your bridge server URL here
 -- ══════════════════════════════════════════════════════════════════════
-local BRIDGE_URL = "https://afraid-points-relate.loca.lt" -- Replace with your localtunnel/ngrok URL
+local BRIDGE_URL = "https://da443506404a-tunnel-wtuzd4aw.devinapps.com" -- Replace with your tunnel URL
+local BRIDGE_USER = "user" -- Basic Auth username (leave "" if no auth)
+local BRIDGE_PASS = "5571bcdcd0160a12caa9acf30ae7d166" -- Basic Auth password (leave "" if no auth)
 local POLL_INTERVAL = 2 -- seconds between polls
 local SESSION_PING_INTERVAL = 10 -- seconds between keep-alive pings
 
@@ -36,6 +38,31 @@ local playerGui = player:WaitForChild("PlayerGui")
 -- ══════════════════════════════════════════════════════════════════════
 local httpRequest = (request or http_request or (syn and syn.request) or http)
 
+local function base64encode(str)
+    local b = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    return (str:gsub(".", function(x)
+        local r, byte = "", x:byte()
+        for i = 8, 1, -1 do r = r .. (byte % 2 ^ i - byte % 2 ^ (i - 1) > 0 and "1" or "0") end
+        return r
+    end) .. "0000"):gsub("%d%d%d?%d?%d?%d?", function(x)
+        if #x < 6 then return "" end
+        local c = 0
+        for i = 1, 6 do c = c + (x:sub(i, i) == "1" and 2 ^ (6 - i) or 0) end
+        return b:sub(c + 1, c + 1)
+    end) .. ({  "", "==", "=" })[#str % 3 + 1]
+end
+
+local function buildHeaders()
+    local headers = {
+        ["Content-Type"] = "application/json",
+        ["Bypass-Tunnel-Reminder"] = "true",
+    }
+    if BRIDGE_USER ~= "" and BRIDGE_PASS ~= "" then
+        headers["Authorization"] = "Basic " .. base64encode(BRIDGE_USER .. ":" .. BRIDGE_PASS)
+    end
+    return headers
+end
+
 local function makeRequest(method, endpoint, body)
     local url = BRIDGE_URL .. endpoint
     local success, response = pcall(function()
@@ -43,7 +70,7 @@ local function makeRequest(method, endpoint, body)
             return httpRequest({
                 Url = url,
                 Method = method,
-                Headers = { ["Content-Type"] = "application/json" },
+                Headers = buildHeaders(),
                 Body = body and HttpService:JSONEncode(body) or nil,
             })
         end
@@ -51,7 +78,12 @@ local function makeRequest(method, endpoint, body)
     end)
 
     if not success or not response then
+        warn("[Bridge] Request failed: " .. tostring(response))
         return nil, "Request failed"
+    end
+
+    if response.StatusCode and response.StatusCode ~= 200 then
+        warn("[Bridge] HTTP " .. tostring(response.StatusCode) .. ": " .. tostring(response.Body):sub(1, 100))
     end
 
     local ok, decoded = pcall(function()
@@ -61,6 +93,7 @@ local function makeRequest(method, endpoint, body)
     if ok then
         return decoded, nil
     end
+    warn("[Bridge] JSON decode failed, raw: " .. tostring(response.Body):sub(1, 200))
     return nil, "JSON decode failed"
 end
 
