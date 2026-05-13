@@ -1,6 +1,6 @@
 repeat task.wait() until game:IsLoaded()
 
-local VERSION = "1.0.0"
+local VERSION = "1.2.0"
 
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
 local TweenService = game:GetService("TweenService")
+local ContextActionService = game:GetService("ContextActionService")
 
 local localPlayer = Players.LocalPlayer
 local client, clientHRP
@@ -41,10 +42,28 @@ end
 updateCharacter()
 localPlayer.CharacterAdded:Connect(updateCharacter)
 
--- Anti-AFK
+-- Anti-AFK (disable idle connections + VirtualUser fallback)
+pcall(function()
+	for _, v in pairs(getconnections(localPlayer.Idled)) do v:Disable() end
+end)
 localPlayer.Idled:Connect(function()
 	VirtualUser:CaptureController()
 	VirtualUser:ClickButton2(Vector2.new())
+end)
+
+-- Anti-Kick hook via getrawmetatable
+pcall(function()
+	local mt = getrawmetatable(game)
+	local oldNamecall = mt.__namecall
+	setreadonly(mt, false)
+	mt.__namecall = newcclosure(function(self, ...)
+		local method = getnamecallmethod()
+		if not checkcaller() and (method == "Kick" or method == "kick") then
+			return nil
+		end
+		return oldNamecall(self, ...)
+	end)
+	setreadonly(mt, true)
 end)
 
 local activeFeatures = {}
@@ -60,9 +79,14 @@ local State = {
 	AutoRebirth = false,
 	AutoEquipBest = false,
 	AutoFeed = false,
+	AutoCollect = false,
+	AutoTrash = false,
+	AutoJackpot = false,
 	Webhook = false,
 	ZeroLoad = false,
 }
+
+local KEEP_MUTATIONS = {["inverted"] = true, ["huge"] = true, ["shiny"] = true}
 local DEFAULT_CONFIG = {
 	AutoBestZoneInterval = 15,
 	AutoUpgradeInterval = 30,
@@ -692,6 +716,60 @@ local function Roll()
 	callRemote("RollService", "requestRoll")
 end
 
+-- Jackpot Sniper: auto-spend armed jackpot spins
+local function TryJackpotRoll()
+	local ok, ds = pcall(function() return require(ReplicatedStorage.Packages.DataService).client end)
+	if ok and ds then
+		local armed = 0
+		pcall(function() armed = ds:get({"armedJackpotSpins"}) or 0 end)
+		if armed > 0 then
+			callRemote("RollService", "requestJackpotRoll")
+		end
+	end
+end
+
+-- Smart Trash: delete non-equipped slimes without rare mutations
+local function RunAutoTrash()
+	local ok, ds = pcall(function() return require(ReplicatedStorage.Packages.DataService).client end)
+	if not ok or not ds then return end
+	local inv, equipped
+	pcall(function() inv = ds:get({"inventory"}) end)
+	pcall(function() equipped = ds:get({"equipped"}) or {} end)
+	if not inv then return end
+
+	for uid, data in pairs(inv) do
+		if type(data) == "table" and data.id then
+			local isEquipped = false
+			for _, eq in pairs(equipped) do
+				if eq == uid then isEquipped = true break end
+			end
+			if not isEquipped then
+				local isRare = false
+				if data.mutations then
+					for m, _ in pairs(data.mutations) do
+						if KEEP_MUTATIONS[m] then isRare = true break end
+					end
+				end
+				if not isRare then
+					callRemote("InventoryService", "requestDeleteSlime", uid)
+					task.wait(0.05)
+				end
+			end
+		end
+	end
+end
+
+-- Auto Collect: request collection of loot items via LootService
+local function CollectLoot()
+	local loot = workspace:FindFirstChild("Loot")
+	if not loot then return end
+	for _, item in pairs(loot:GetChildren()) do
+		if item:IsA("BasePart") or item:FindFirstChildWhichIsA("BasePart") then
+			callRemote("LootService", "requestCollect", item.Name)
+		end
+	end
+end
+
 local function getRollCooldown()
 	local statsList = safeFind(localPlayer, "PlayerGui", "Root", "BottomBarStats", "StatsList")
 	local rollSpeedStat = statsList and (statsList:FindFirstChild("RollSpeedStat") or statsList:FindFirstChild("RollSpeed"))
@@ -797,6 +875,21 @@ local FEATURES = {
 		kind = "task_loop",
 		getInterval = function() return Config.AutoFeedInterval end,
 		action = function() FeedSlimes() end
+	},
+	AutoCollect = {
+		kind = "task_loop",
+		getInterval = function() return 0.2 end,
+		action = function() CollectLoot() end
+	},
+	AutoTrash = {
+		kind = "task_loop",
+		getInterval = function() return 5 end,
+		action = function() RunAutoTrash() end
+	},
+	AutoJackpot = {
+		kind = "task_loop",
+		getInterval = function() return 0.2 end,
+		action = function() TryJackpotRoll() end
 	},
 	Webhook = {
 		kind = "task_loop",
@@ -1475,6 +1568,9 @@ createToggle(pageMain, "Auto Farm",      "AutoFarm")
 createToggle(pageMain, "Auto Potions",   "AutoPotions")
 createToggle(pageMain, "Auto Kill",      "AutoKill")
 createToggle(pageMain, "Auto Best Zone", "AutoTeleportBestZone")
+createToggle(pageMain, "Auto Collect",   "AutoCollect")
+createToggle(pageMain, "Auto Trash (Smart)", "AutoTrash")
+createToggle(pageMain, "Jackpot Sniper", "AutoJackpot")
 createSection(pageMain, "Performance")
 createToggle(pageMain, "Zero Load", "ZeroLoad")
 createSection(pageMain, "Settings")
@@ -1629,7 +1725,20 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	end
 end)
 
--- Мобильная кнопка toggle (вместо ALT)
+-- ContextActionService toggle — mobile-safe button that doesn't conflict with controls
+do
+	local function handleASToggle(_actionName, inputState, _inputObject)
+		if inputState == Enum.UserInputState.Begin then
+			toggleMenu()
+			Notify("Menu", hidden and "Hidden" or "Opened")
+		end
+	end
+	ContextActionService:BindAction("ToggleAS", newcclosure(handleASToggle), true)
+	ContextActionService:SetPosition("ToggleAS", UDim2.new(0.2, 0, 0.1, 0))
+	ContextActionService:SetTitle("ToggleAS", "ABRAM MENU")
+end
+
+-- Мобильная кнопка toggle (дополнительная)
 if isMobile then
 	local mobileBtn = Instance.new("TextButton")
 	mobileBtn.Size = UDim2.new(0, 44, 0, 44)
@@ -1700,7 +1809,7 @@ task.spawn(function()
 	end
 end)
 
-local loadMsg = ("v%s loaded. "):format(VERSION) .. (isMobile and "Tap AS button to toggle menu." or "Press ALT or click AS icon.")
+local loadMsg = ("v%s loaded. Stealth: ACTIVE."):format(VERSION) .. (isMobile and " Tap ABRAM MENU to toggle." or " Press ALT or click AS icon.")
 Notify("AbramSliem", loadMsg)
 if not httpRequest then
 	Notify("AbramSliem", "Note: executor lacks HTTP API — Discord webhook disabled.")
