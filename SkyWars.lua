@@ -83,13 +83,13 @@ end))
 -- ==================== CONFIG ====================
 local DEFAULT_CONFIG = {
     FarmRadius        = 105,    -- студы
-    TweenSpeed        = 50,     -- студов в секунду
-    RescanInterval    = 5,      -- сек — период обновления mapFolder
+    TweenSpeed        = 200,    -- студов в секунду (was 50)
+    RescanInterval    = 2,      -- сек — период обновления mapFolder (was 5)
     AutoEquipAxe      = true,
     AntiVoidEnabled   = true,
     AntiDetectJitter  = true,
     AutoFarmHover     = 0,      -- студы над блоком (0 = внутрь, как в оригинале; >0 = висеть сверху)
-    AutoFarmHoldMax   = 2,      -- сек, макс ожидание разрушения блока
+    AutoFarmHoldMax   = 1.2,    -- сек, макс ожидание разрушения блока (was 2)
 
     -- Movement
     FlySpeed          = 60,     -- студов/с
@@ -140,6 +140,12 @@ if Config.AutoFarmHover == 3 then
     Config.AutoFarmHover = 0
     saveConfig()
 end
+
+-- v3.0.0 migration: bump old slow defaults to new fast ones
+if Config.TweenSpeed == 50 then Config.TweenSpeed = 200 end
+if Config.AutoFarmHoldMax == 2 then Config.AutoFarmHoldMax = 1.2 end
+if Config.RescanInterval == 5 then Config.RescanInterval = 2 end
+saveConfig()
 
 -- ==================== STATE ====================
 local State = {
@@ -356,9 +362,11 @@ local function isCharacterAlive()
 end
 
 -- ==================== AUTO FARM ITERATION ====================
--- Период повторных ударов: ~250мс соответствует стандартной серверной паузе
--- Tool.Activated. 100мс вызывали spam-detect на части серверов и удары игнорировались.
-local AUTO_FARM_HOLD_TICK = 0.25
+-- Период повторных ударов: 150мс — агрессивнее дефолта, но ниже spam-detect порога.
+local AUTO_FARM_HOLD_TICK = 0.15
+
+-- Порог мгновенного TP: блоки ближе этой дистанции — без tween, сразу CFrame
+local INSTANT_TP_DIST = 15
 
 local function pickNearestBlock()
     if not (oresFolder and clientHRP) then return nil end
@@ -415,35 +423,42 @@ local function farmStep()
 
     local targetCF, targetPos = computeFarmTarget(block, posJitter)
     local moveDist  = (clientHRP.Position - targetPos).Magnitude
-    local tweenTime = math.max(moveDist / speed * timeScale, 0.05)
 
-    -- Отменяем предыдущий tween, не накапливая
-    if activeTween then
-        pcall(function() activeTween:Cancel() end)
+    if moveDist < INSTANT_TP_DIST then
+        -- Мгновенный TP для близких блоков — без tween overhead
+        if clientHRP then clientHRP.CFrame = targetCF end
+    else
+        -- Tween для дальних блоков
+        local tweenTime = math.max(moveDist / speed * timeScale, 0.05)
+        if activeTween then
+            pcall(function() activeTween:Cancel() end)
+            activeTween = nil
+        end
+        activeTween = TweenService:Create(
+            clientHRP,
+            TweenInfo.new(tweenTime, Enum.EasingStyle.Linear),
+            { CFrame = targetCF }
+        )
+        activeTween:Play()
+        activeTween.Completed:Wait()
         activeTween = nil
     end
 
-    activeTween = TweenService:Create(
-        clientHRP,
-        TweenInfo.new(tweenTime, Enum.EasingStyle.Linear),
-        { CFrame = targetCF }
-    )
-    activeTween:Play()
-    activeTween.Completed:Wait()
-    activeTween = nil
-
-    -- Игрок теперь на блоке — серверный distance-check пройдёт. Не бьём во время tween,
-    -- потому что сервер отбросит вызов и может поставить кулдаун на последующие удары.
     if not (block and block.Parent and State.AutoFarm) then return end
     if clientHRP then clientHRP.CFrame = targetCF end
 
-    -- Даём CFrame репликации долететь до сервера (~30-50мс лаг),
-    -- иначе сервер видит нас на старой позиции и distance-check дропает удар.
-    task.wait(0.05)
+    -- Минимальная пауза для репликации CFrame на сервер
+    task.wait(0.03)
     if not (block and block.Parent and State.AutoFarm) then return end
 
+    -- Burst fire: 2 быстрых удара сразу при контакте с блоком
     pcall(function() axe:Activate() end)
     pcall(function() remote:FireServer(block) end)
+    if block.Parent and State.AutoFarm then
+        task.wait(0.08)
+        pcall(function() axe:Activate() end)
+        pcall(function() remote:FireServer(block) end)
+    end
 
     -- Повторные удары на ритме Tool.Activated пока блок не разрушен или таймаут.
     local maxHold = math.max(Config.AutoFarmHoldMax, 0.3)
@@ -501,10 +516,10 @@ local function startAutoFarm()
                     task.wait(0.5)
                 end
                 if not State.AutoFarm then break end
-                -- лёгкая пауза между итерациями + микро-джиттер
-                local pause = 0.05
+                -- минимальная пауза между итерациями + микро-джиттер
+                local pause = 0.02
                 if Config.AntiDetectJitter then
-                    pause = pause + math.random() * 0.05
+                    pause = pause + math.random() * 0.03
                 end
                 task.wait(pause)
             end
