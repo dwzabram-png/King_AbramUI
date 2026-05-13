@@ -16,7 +16,7 @@
 -- ══════════════════════════════════════════════════════════════════════
 -- CONFIGURATION – Set your bridge server URL here
 -- ══════════════════════════════════════════════════════════════════════
-local BRIDGE_URL = "https://user:5571bcdcd0160a12caa9acf30ae7d166@da443506404a-tunnel-wtuzd4aw.devinapps.com" -- Replace with your localtunnel/ngrok URL
+local BRIDGE_URL = "https://afraid-points-relate.loca.lt" -- Replace with your localtunnel/ngrok URL
 local POLL_INTERVAL = 2 -- seconds between polls
 local SESSION_PING_INTERVAL = 10 -- seconds between keep-alive pings
 
