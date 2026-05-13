@@ -177,7 +177,7 @@ local State = {
 
 local activeFeatures = {}    -- name -> handle (thread / connection / true)
 local connections    = {}    -- произвольные RBXScriptConnection
-local noclipParts    = setmetatable({}, {__mode = "k"})
+
 local activeTween    -- текущий tween персонажа (только один за раз)
 local antiVoidPart   -- созданная платформа
 local mapFolder      -- workspace.*Map*
@@ -277,51 +277,25 @@ local function ensureAntiVoid()
     State.AntiVoid = true
 end
 
--- ==================== NOCLIP (event-driven, не per-frame) ====================
-local function applyNoclipToCharacter(char)
-    if not char then return end
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") and part.CanCollide then
-            part.CanCollide = false
-            noclipParts[part] = true
-        end
-    end
-end
-
+-- ==================== NOCLIP (per-frame via Stepped) ====================
 local function startNoclip()
     if State.Noclip then return end
     State.Noclip = true
-    if client then applyNoclipToCharacter(client) end
-    -- Подписка на текущего персонажа
-    local function hook(char)
-        disconnect("noclipDesc")
-        applyNoclipToCharacter(char)
-        connections.noclipDesc = char.DescendantAdded:Connect(function(d)
-            if d:IsA("BasePart") and d.CanCollide then
-                d.CanCollide = false
-                noclipParts[d] = true
+    connections.noclipStep = RunService.Stepped:Connect(function()
+        local char = localPlayer.Character
+        if not char then return end
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
             end
-        end)
-    end
-    if client then hook(client) end
-    connections.noclipChar = localPlayer.CharacterAdded:Connect(function(newChar)
-        task.wait(0.3)
-        hook(newChar)
+        end
     end)
 end
 
 local function stopNoclip()
     if not State.Noclip then return end
     State.Noclip = false
-    disconnect("noclipDesc")
-    disconnect("noclipChar")
-    -- Восстановим коллизии у живых частей
-    for part in pairs(noclipParts) do
-        if part and part.Parent then
-            pcall(function() part.CanCollide = true end)
-        end
-    end
-    noclipParts = setmetatable({}, {__mode = "k"})
+    disconnect("noclipStep")
 end
 
 -- ==================== AXE ====================
@@ -433,77 +407,42 @@ local function farmStep()
     local targetCF, targetPos = computeFarmTarget(block, posJitter)
     local moveDist  = (clientHRP.Position - targetPos).Magnitude
 
-    if moveDist < INSTANT_TP_DIST then
-        if clientHRP then clientHRP.CFrame = targetCF end
-    else
-        local tweenTime = math.max(moveDist / speed * timeScale, 0.1)
-        if activeTween then
-            pcall(function() activeTween:Cancel() end)
-            activeTween = nil
-        end
-        activeTween = TweenService:Create(
-            clientHRP,
-            TweenInfo.new(tweenTime, Enum.EasingStyle.Linear),
-            { CFrame = targetCF }
-        )
-        activeTween:Play()
-        activeTween.Completed:Wait()
-        activeTween = nil
+    -- Перемещаем platform на блок (как в рабочем скрипте)
+    if farmPlatform then
+        farmPlatform.CFrame = targetCF
     end
-
-    if not (block and block.Parent and State.AutoFarm) then return end
-    if clientHRP then clientHRP.CFrame = targetCF end
-
-    -- Пауза для репликации CFrame на сервер
-    task.wait(0.05)
-    if not (block and block.Parent and State.AutoFarm) then return end
 
     pcall(function() axe:Activate() end)
+
+    local tweenTime = math.max(moveDist / speed * timeScale, 0.1)
+    if activeTween then
+        pcall(function() activeTween:Cancel() end)
+        activeTween = nil
+    end
+    activeTween = TweenService:Create(
+        clientHRP,
+        TweenInfo.new(tweenTime, Enum.EasingStyle.Linear),
+        { CFrame = targetCF }
+    )
+    activeTween:Play()
+    activeTween.Completed:Wait()
+    activeTween = nil
+
+    if not (block and block.Parent and State.AutoFarm) then return end
+
+    -- Пере-экипируем топор и ищем ремот после tween
+    axe = equipAxe()
+    if not axe then return end
+    remote = axe:FindFirstChildWhichIsA("RemoteEvent")
+    if not remote then return end
+
     pcall(function() remote:FireServer(block) end)
 
-    -- Повторные удары на ритме Tool.Activated пока блок не разрушен или таймаут.
-    local maxHold = math.max(Config.AutoFarmHoldMax, 0.3)
-    local t0 = os.clock()
-    while State.AutoFarm
-       and block.Parent
-       and (os.clock() - t0) < maxHold do
-        task.wait(AUTO_FARM_HOLD_TICK)
-        if not (block.Parent and State.AutoFarm) then break end
-        -- Топор мог отлететь между итерациями (респавн, другой тул) — пере-экипируем.
-        if not (axe and axe.Parent == client) then
-            axe = equipAxe()
-            if not axe then break end
-            remote = axe:FindFirstChildWhichIsA("RemoteEvent") or remote
-            if not remote then break end
-        end
-        if clientHRP then clientHRP.CFrame = targetCF end
-        pcall(function() axe:Activate() end)
-        pcall(function() remote:FireServer(block) end)
-    end
+    task.wait(0.21)
 end
 
 -- ==================== FEATURE LIFECYCLE ====================
--- BodyVelocity вместо Anchored: держит HRP на месте без гравитации,
--- но НЕ блокирует репликацию CFrame на сервер. Anchored=true ломал
--- репликацию — сервер видел игрока на старой позиции (ghost fly).
-local function applyAutoFarmAnchor(state)
-    if not clientHRP then return end
-    pcall(function()
-        if state then
-            local bv = clientHRP:FindFirstChild("AS_FarmBV")
-            if not bv then
-                bv = Instance.new("BodyVelocity")
-                bv.Name = "AS_FarmBV"
-                bv.Velocity = Vector3.zero
-                bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-                bv.Parent = clientHRP
-            end
-        else
-            local bv = clientHRP:FindFirstChild("AS_FarmBV")
-            if bv then bv:Destroy() end
-        end
-    end)
-end
+local farmPlatform  -- phantom platform Part, перемещается на каждый блок
 
 local function startAutoFarm()
     if activeFeatures.AutoFarm then return end
@@ -511,7 +450,16 @@ local function startAutoFarm()
     startNoclip()
     refreshMap()
 
-    applyAutoFarmAnchor(true)
+    -- Создаём platform Part для позиционирования на блоке
+    if not farmPlatform or not farmPlatform.Parent then
+        farmPlatform = Instance.new("Part")
+        farmPlatform.Name = "AS_FarmPlatform"
+        farmPlatform.CanCollide = false
+        farmPlatform.Transparency = 1
+        farmPlatform.Size = Vector3.new(55, 0, 55)
+        farmPlatform.Anchored = true
+        farmPlatform.Parent = workspace
+    end
 
     -- Защита от смерти: при получении урона восстанавливаем HP
     disconnect("autoFarmHealth")
@@ -526,12 +474,10 @@ local function startAutoFarm()
         end
     end)
 
-    -- После Respawn'а clientHRP обновляется — пере-якорим, если AutoFarm всё ещё on
     disconnect("autoFarmRespawn")
     connections.autoFarmRespawn = localPlayer.CharacterAdded:Connect(function()
         task.wait(0.5)
         if State.AutoFarm then
-            applyAutoFarmAnchor(true)
             pcall(function()
                 local hum = getHumanoid()
                 if hum then
@@ -558,12 +504,6 @@ local function startAutoFarm()
                     task.wait(0.5)
                 end
                 if not State.AutoFarm then break end
-                -- минимальная пауза между итерациями + микро-джиттер
-                local pause = 0.02
-                if Config.AntiDetectJitter then
-                    pause = pause + math.random() * 0.03
-                end
-                task.wait(pause)
             end
         end
         if activeTween then
@@ -582,7 +522,10 @@ local function stopAutoFarm()
     end
     disconnect("autoFarmRespawn")
     disconnect("autoFarmHealth")
-    applyAutoFarmAnchor(false)
+    if farmPlatform then
+        pcall(function() farmPlatform:Destroy() end)
+        farmPlatform = nil
+    end
     if not State.Noclip then stopNoclip() end
 end
 
