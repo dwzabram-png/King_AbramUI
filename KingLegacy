@@ -1,7 +1,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
--- VirtualUser идет нахуй на мобилках.
 
 local LocalPlayer = Players.LocalPlayer
 local Chest = ReplicatedStorage:WaitForChild("Chest")
@@ -18,17 +17,7 @@ local lastFloor = ""
 local startCFrame = CFrame.new(10959.46, 141.89, 1252.01)
 local togglingRoom = false
 local lastHealTime = 0
-
-local InternalCooldowns = {}
-local COOLDOWN_TIMERS = {
-    DFZ = 8,
-    DFX = 6,
-    DFC = 6,
-    DFV = 10,
-    SWZ = 5,
-    SWX = 5,
-    RC  = 60,
-}
+local lastSkillTime = 0
 
 -- 1. АКТИВАЦИЯ ВОЛИ ПРИ ЗАПУСКЕ
 task.spawn(function()
@@ -43,7 +32,6 @@ local function checkAndHeal()
     if tick() - lastHealTime < 60 then return end
     
     local currentHP = math.huge
-
     local gui = LocalPlayer.PlayerGui:FindFirstChild("MainGui")
     if gui then
         local healthFrame = gui:FindFirstChild("BaseFrame") 
@@ -91,63 +79,29 @@ local function isPlayerInRoom()
     if not char or not char:FindFirstChild("HumanoidRootPart") then return false end
     local playerPos = char.HumanoidRootPart.Position
     local roomPos = room.Position
-    local radius = (math.max(room.Size.X, room.Size.Z) / 2) * 0.9 -- чуть меньше радиус для надежности
+    local radius = (math.max(room.Size.X, room.Size.Z) / 2) * 0.9 
     local distance = (roomPos - playerPos).Magnitude
     return distance <= radius
 end
 
-local function isReady(skillCode)
-    local lastUse = InternalCooldowns[skillCode]
-    if lastUse then
-        local cd = COOLDOWN_TIMERS[skillCode] or 5
-        if tick() - lastUse < cd then
-            return false
-        end
-    end
-    return true
-end
-
-local function markUsed(skillCode)
-    InternalCooldowns[skillCode] = tick()
-end
-
--- Открытие/закрытие зоны
+-- Моментальное Открытие/закрытие зоны
 local function toggleRoom(targetCFrame)
     if togglingRoom then return end
-    if not isReady("DFZ") then return end 
-    
     togglingRoom = true
-    markUsed("DFZ")
     local cleanCFrame = CFrame.new(targetCFrame.Position)
     task.spawn(function()
-        local ok, err = pcall(function()
-            SkillAction:InvokeServer("DF_OpOp_Z", { ["Type"] = "Down", ["MouseHit"] = cleanCFrame })
-        end)
-        if not ok then warn("[KL-DELTA] toggleRoom Down error: " .. tostring(err)) end
-        
-        task.wait(0.5)
-        
-        local ok2, err2 = pcall(function()
-            SkillAction:InvokeServer("DF_OpOp_Z", { ["Type"] = "Up", ["MouseHit"] = cleanCFrame })
-        end)
-        if not ok2 then warn("[KL-DELTA] toggleRoom Up error: " .. tostring(err2)) end
-        
-        task.wait(0.5)
+        pcall(function() SkillAction:InvokeServer("DF_OpOp_Z", { ["Type"] = "Down", ["MouseHit"] = cleanCFrame }) end)
+        pcall(function() SkillAction:InvokeServer("DF_OpOp_Z", { ["Type"] = "Up", ["MouseHit"] = cleanCFrame }) end)
+        task.wait(1) -- Защита от двойного прока
         togglingRoom = false
     end)
 end
 
--- Использование скилла
-local function useSkill(skillName, targetCFrame, cdCode)
-    if cdCode then markUsed(cdCode) end
+-- Моментальный каст скилла без проверки КД
+local function fireSkill(skillName, targetCFrame)
     task.spawn(function()
-        pcall(function()
-            SkillAction:InvokeServer(skillName, { ["Type"] = "Down", ["MouseHit"] = targetCFrame })
-        end)
-        task.wait(0.1)
-        pcall(function()
-            SkillAction:InvokeServer(skillName, { ["Type"] = "Up", ["MouseHit"] = targetCFrame })
-        end)
+        pcall(function() SkillAction:InvokeServer(skillName, { ["Type"] = "Down", ["MouseHit"] = targetCFrame }) end)
+        pcall(function() SkillAction:InvokeServer(skillName, { ["Type"] = "Up", ["MouseHit"] = targetCFrame }) end)
     end)
 end
 
@@ -176,7 +130,30 @@ local function getFloorText()
     return nil
 end
 
--- 2. ЗАПУСК ДАНЖА
+-- 2. ЖЕЛЕЗОБЕТОННЫЙ ФЛАЙ (Анти-Дергание)
+RunService.Heartbeat:Connect(function()
+    if autoDungeon then
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            local hrp = char.HumanoidRootPart
+            -- Жестко глушим инерцию и гравитацию каждый кадр
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+            
+            -- Страховочный BodyVelocity
+            local floatFly = hrp:FindFirstChild("DeltaHover")
+            if not floatFly then
+                floatFly = Instance.new("BodyVelocity")
+                floatFly.Name = "DeltaHover"
+                floatFly.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+                floatFly.Velocity = Vector3.zero
+                floatFly.Parent = hrp
+            end
+        end
+    end
+end)
+
+-- 3. ЗАПУСК ДАНЖА
 task.spawn(function()
     local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     task.wait(1)
@@ -186,33 +163,21 @@ task.spawn(function()
     local chooseMapGui = LocalPlayer.PlayerGui:WaitForChild("ChooseMap", 15)
     if chooseMapGui then
         task.wait(1) 
-        pcall(function()
-            SelectDungeon:InvokeServer("Hard")
-        end)
+        pcall(function() SelectDungeon:InvokeServer("Hard") end)
     end
 end)
 
--- 3. ОСНОВНОЙ ЦИКЛ ФАРМА
+-- 4. ОСНОВНОЙ ЦИКЛ ФАРМА
 task.spawn(function()
     while autoDungeon do
         task.wait(0.05)
         
-        local ok, err = pcall(function()
+        pcall(function()
             local char = LocalPlayer.Character
             if not char or not char:FindFirstChild("HumanoidRootPart") then return end
             local hrp = char.HumanoidRootPart
 
             checkAndHeal()
-
-            -- Анти-Дергание (Оставляем BodyVelocity, но на мобилках лучше так, чем без него)
-            local hoverFly = hrp:FindFirstChild("HoverVelocity")
-            if not hoverFly then
-                hoverFly = Instance.new("BodyVelocity")
-                hoverFly.Name = "HoverVelocity"
-                hoverFly.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-                hoverFly.Velocity = Vector3.new(0, 0, 0)
-                hoverFly.Parent = hrp
-            end
 
             local currentFloor = getFloorText()
             if currentFloor then
@@ -229,6 +194,7 @@ task.spawn(function()
                         if not mobHRP then return end
                         local targetPos = mobHRP.CFrame
                         
+                        -- Висим прямо над мобом, смотрим вниз
                         hrp.CFrame = targetPos * CFrame.new(0, 15, 0) * CFrame.Angles(math.rad(-90), 0, 0)
 
                         if not isRoomActive() then
@@ -240,32 +206,33 @@ task.spawn(function()
                             toggleRoom(hrp.CFrame)
                             task.wait(1.5)
                         else
-                            -- M1
+                            -- Бесконечный спам M1
                             pcall(function()
                                 SkillAction:InvokeServer("SW_Kioru V2_M1", { ["MouseHit"] = targetPos })
                             end)
 
-                            if isReady("SWZ") then useSkill("SW_Kioru V2_Z", targetPos, "SWZ") end
-                            if isReady("SWX") then useSkill("SW_Kioru V2_X", targetPos, "SWX") end
-
-                            if isRoomActive() then
-                                if isReady("DFX") then useSkill("DF_OpOp_X", targetPos, "DFX") end
-                                if isReady("DFC") then useSkill("DF_OpOp_C", targetPos, "DFC") end
-                                if isReady("DFV") then useSkill("DF_OpOp_V", targetPos, "DFV") end
+                            -- Спам остальных скиллов ровно раз в секунду
+                            if tick() - lastSkillTime >= 1 then
+                                fireSkill("SW_Kioru V2_Z", targetPos)
+                                fireSkill("SW_Kioru V2_X", targetPos)
+                                
+                                if isRoomActive() then
+                                    fireSkill("DF_OpOp_X", targetPos)
+                                    fireSkill("DF_OpOp_C", targetPos)
+                                    fireSkill("DF_OpOp_V", targetPos)
+                                end
+                                
+                                lastSkillTime = tick()
                             end
                         end
                     end
                 end
             end
         end)
-        
-        if not ok then
-            warn("[KL-DELTA] Loop error: " .. tostring(err))
-        end
     end
 end)
 
--- Анти-АФК для Мобилок (без VirtualUser и хуйни с мышой)
+-- 5. АНТИ-АФК ДЛЯ МОБИЛОК
 local GC = getconnections or get_signal_cons
 if GC then
     for i,v in pairs(GC(LocalPlayer.Idled)) do
@@ -276,19 +243,17 @@ if GC then
         end
     end
 else
-    -- Запасной вариант через хук __namecall, если getconnections нет
     local mt = getrawmetatable(game)
     local oldNamecall = mt.__namecall
     setreadonly(mt, false)
-
     mt.__namecall = newcclosure(function(self, ...)
         local method = getnamecallmethod()
         if method == "Kick" or method == "kick" then
-            return -- шлём нахуй любые кики
+            return
         end
         return oldNamecall(self, ...)
     end)
     setreadonly(mt, true)
 end
 
-print("[KL-DELTA] King Legacy AutoDungeon запущен и адаптирован!")
+print("[KL-DELTA] Фарм запущен. Физика заморожена, КД вырезаны, спам активирован!")
