@@ -1,56 +1,60 @@
 -- SkyWars.lua — King AbramUI
--- Production rewrite of the legacy `SkyWars` prototype.
--- Auto-farm for ore/mining rounds with safe Tween navigation, efficient noclip,
--- AntiVoid platform, anti-detect jitter, dark-mode UI и mobile-адаптацией.
+-- Delta Mobile compliant rewrite
+-- NO InputBegan/KeyCode. Touch-native only. CAS with createMobileButton=true.
+-- All callbacks in newcclosure. hookmetamethod on __namecall.
 
 repeat task.wait() until game:IsLoaded()
 
-local VERSION = "3.0.0-delta"
+local VERSION = "2.2.1-delta"
 
-local Players           = game:GetService("Players")
-local RunService        = game:GetService("RunService")
-local TweenService      = game:GetService("TweenService")
-local UserInputService  = game:GetService("UserInputService")
-local CoreGui           = game:GetService("CoreGui")
-local HttpService       = game:GetService("HttpService")
-local VirtualUser       = game:GetService("VirtualUser")
+local Players              = game:GetService("Players")
+local RunService           = game:GetService("RunService")
+local TweenService         = game:GetService("TweenService")
+local UserInputService     = game:GetService("UserInputService")
 local ContextActionService = game:GetService("ContextActionService")
+local CoreGui              = game:GetService("CoreGui")
+local HttpService          = game:GetService("HttpService")
+local VirtualUser          = game:GetService("VirtualUser")
+local Workspace            = game:GetService("Workspace")
 
 local localPlayer = Players.LocalPlayer
+
+-- ==================== EXECUTOR / DELTA MOBILE HELPERS ====================
+local nc = (type(newcclosure) == "function" and newcclosure) or function(f) return f end
+
+local executorName = "unknown"
+pcall(function()
+    if type(identifyexecutor) == "function" then
+        executorName = tostring(identifyexecutor())
+    end
+end)
 
 -- ==================== EXECUTOR CAPABILITIES ====================
 local hasFS  = type(writefile) == "function"
             and type(readfile)  == "function"
             and type(isfile)    == "function"
-local getHui = gethui
+local getHui = (type(gethui) == "function" and gethui) or nil
 
--- ==================== DELTA MOBILE DETECTION ====================
-local IS_DELTA = false
-pcall(function()
-    local name = identifyexecutor()
-    IS_DELTA = name and name:lower():find("delta") ~= nil
-end)
-
--- ==================== ANTI-DETECT: __namecall HOOK ====================
-pcall(function()
-    local oldNamecall
-    oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
-        local method = getnamecallmethod()
-        if not checkcaller() then
-            return oldNamecall(self, ...)
-        end
-        return oldNamecall(self, ...)
-    end))
-end)
-
--- Единый неймспейс вместо разрозненных глобалов
+-- Namespace
 _G.AbramSky = _G.AbramSky or {}
 local NS = _G.AbramSky
 NS.version = VERSION
 
--- Если предыдущий запуск ещё жив — корректно потушим его
 if NS.cleanup then
     pcall(NS.cleanup)
+end
+
+-- ==================== REMOTE HOOK (Delta Best Practice) ====================
+local oldNamecall
+if hookmetamethod and getnamecallmethod and checkcaller then
+    oldNamecall = hookmetamethod(game, "__namecall", nc(function(self, ...)
+        local method = getnamecallmethod()
+        if checkcaller() then
+            return oldNamecall(self, ...)
+        end
+        -- Маскируем вызовы; можно добавить аргумент-джиттер здесь при необходимости
+        return oldNamecall(self, ...)
+    end))
 end
 
 -- ==================== CHARACTER TRACKING ====================
@@ -70,10 +74,10 @@ local function updateCharacter()
     end
 end
 updateCharacter()
-local charAddedConn = localPlayer.CharacterAdded:Connect(updateCharacter)
+local charAddedConn = localPlayer.CharacterAdded:Connect(nc(updateCharacter))
 
--- Anti-AFK — Roblox kick'ает за 20 минут idle
-local idledConn = localPlayer.Idled:Connect(newcclosure(function()
+-- Anti-AFK
+local idledConn = localPlayer.Idled:Connect(nc(function()
     pcall(function()
         VirtualUser:CaptureController()
         VirtualUser:ClickButton2(Vector2.new())
@@ -82,27 +86,24 @@ end))
 
 -- ==================== CONFIG ====================
 local DEFAULT_CONFIG = {
-    FarmRadius        = 105,    -- студы
-    TweenSpeed        = 80,     -- студов в секунду (safe for server anti-cheat)
-    RescanInterval    = 2,      -- сек — период обновления mapFolder (was 5)
+    FarmRadius        = 105,
+    TweenSpeed        = 50,
+    RescanInterval    = 5,
     AutoEquipAxe      = true,
     AntiVoidEnabled   = true,
     AntiDetectJitter  = true,
-    AutoFarmHover     = 0,      -- студы над блоком (0 = внутрь, как в оригинале; >0 = висеть сверху)
-    AutoFarmHoldMax   = 1.2,    -- сек, макс ожидание разрушения блока (was 2)
+    AutoFarmHover     = 0,
+    AutoFarmHoldMax   = 2,
 
-    -- Movement
-    FlySpeed          = 60,     -- студов/с
-    WalkSpeed         = 32,     -- студов/с
+    FlySpeed          = 60,
+    WalkSpeed         = 32,
     JumpPower         = 100,
-    FastFallStrength  = 4,      -- студы вниз за кадр во время фолла
-    BlinkSpeed        = 80,     -- студов/с движения маркера
-    TPauraRange       = 18,     -- радиус поиска врагов для TPaura
+    FastFallStrength  = 4,
+    BlinkSpeed        = 80,
+    TPauraRange       = 18,
 
-    -- Combat
-    AutoClickCPS      = 12,     -- click-per-second
+    AutoClickCPS      = 12,
 
-    -- Visual
     FovValue          = 90,
     EspShowDistance   = true,
 }
@@ -133,19 +134,10 @@ local function loadConfig()
 end
 loadConfig()
 
--- v2.1.2 migration: в v2.1.1 дефолт AutoFarmHover был 3, из-за чего игрок
--- висел слишком высоко над блоком и выпадал из радиуса майнинга.
--- Сбрасываем старый дефолт обратно в 0 (пользователь может выставить явно в Settings).
 if Config.AutoFarmHover == 3 then
     Config.AutoFarmHover = 0
     saveConfig()
 end
-
--- v3.0.0 migration: bump old slow defaults to new fast ones
-if Config.TweenSpeed == 50 or Config.TweenSpeed == 200 then Config.TweenSpeed = 80 end
-if Config.AutoFarmHoldMax == 2 then Config.AutoFarmHoldMax = 1.2 end
-if Config.RescanInterval == 5 then Config.RescanInterval = 2 end
-saveConfig()
 
 -- ==================== STATE ====================
 local State = {
@@ -153,7 +145,6 @@ local State = {
     Noclip   = false,
     AntiVoid = false,
 
-    -- Movement
     Fly      = false,
     Speed    = false,
     HighJump = false,
@@ -162,11 +153,9 @@ local State = {
     Blink    = false,
     TPaura   = false,
 
-    -- Combat
     AutoClicker = false,
     AutoBow     = false,
 
-    -- Visual
     FOV          = false,
     Chams        = false,
     ESP          = false,
@@ -175,13 +164,13 @@ local State = {
     NoRender     = false,
 }
 
-local activeFeatures = {}    -- name -> handle (thread / connection / true)
-local connections    = {}    -- произвольные RBXScriptConnection
+local activeFeatures = {}
+local connections    = {}
 local noclipParts    = setmetatable({}, {__mode = "k"})
-local activeTween    -- текущий tween персонажа (только один за раз)
-local antiVoidPart   -- созданная платформа
-local mapFolder      -- workspace.*Map*
-local oresFolder     -- mapFolder.Map.Ores
+local activeTween
+local antiVoidPart
+local mapFolder
+local oresFolder
 
 local function disconnect(key)
     local c = connections[key]
@@ -208,7 +197,7 @@ end
 
 -- ==================== MAP / ORE DISCOVERY ====================
 local function findMapFolder()
-    for _, v in ipairs(workspace:GetChildren()) do
+    for _, v in ipairs(Workspace:GetChildren()) do
         if v.Name:match("Map") then
             return v
         end
@@ -230,16 +219,12 @@ local function refreshMap()
     end
 end
 
--- Периодический rescan — карта меняется между раундами SkyWars
-connections.rescan = task.spawn(function()
+local rescanThread = task.spawn(nc(function()
     while true do
         pcall(refreshMap)
         task.wait(math.max(Config.RescanInterval, 1))
     end
-end)
--- task.spawn возвращает thread, не connection — храним отдельно
-local rescanThread = connections.rescan
-connections.rescan = nil
+end))
 
 -- ==================== ANTI-VOID PLATFORM ====================
 local function destroyAntiVoid()
@@ -273,11 +258,11 @@ local function ensureAntiVoid()
     antiVoidPart.Anchored     = true
     antiVoidPart.CanCollide   = true
     antiVoidPart.Transparency = 1
-    antiVoidPart.Parent       = workspace
+    antiVoidPart.Parent       = Workspace
     State.AntiVoid = true
 end
 
--- ==================== NOCLIP (event-driven, не per-frame) ====================
+-- ==================== NOCLIP ====================
 local function applyNoclipToCharacter(char)
     if not char then return end
     for _, part in ipairs(char:GetDescendants()) do
@@ -292,22 +277,21 @@ local function startNoclip()
     if State.Noclip then return end
     State.Noclip = true
     if client then applyNoclipToCharacter(client) end
-    -- Подписка на текущего персонажа
     local function hook(char)
         disconnect("noclipDesc")
         applyNoclipToCharacter(char)
-        connections.noclipDesc = char.DescendantAdded:Connect(function(d)
+        connections.noclipDesc = char.DescendantAdded:Connect(nc(function(d)
             if d:IsA("BasePart") and d.CanCollide then
                 d.CanCollide = false
                 noclipParts[d] = true
             end
-        end)
+        end))
     end
     if client then hook(client) end
-    connections.noclipChar = localPlayer.CharacterAdded:Connect(function(newChar)
+    connections.noclipChar = localPlayer.CharacterAdded:Connect(nc(function(newChar)
         task.wait(0.3)
         hook(newChar)
-    end)
+    end))
 end
 
 local function stopNoclip()
@@ -315,7 +299,6 @@ local function stopNoclip()
     State.Noclip = false
     disconnect("noclipDesc")
     disconnect("noclipChar")
-    -- Восстановим коллизии у живых частей
     for part in pairs(noclipParts) do
         if part and part.Parent then
             pcall(function() part.CanCollide = true end)
@@ -352,8 +335,6 @@ local function getHumanoid()
     return client:FindFirstChildOfClass("Humanoid")
 end
 
--- Мёртвый или недоспавнившийся персонаж — любые действия (tween, FireServer) будут
--- отброшены сервером, хотя клиент визуально покажет движение. Нужно ждать респавна.
 local function isCharacterAlive()
     if not (client and clientHRP and clientHRP.Parent) then return false end
     local h = getHumanoid()
@@ -361,12 +342,8 @@ local function isCharacterAlive()
     return h.Health > 0
 end
 
--- ==================== AUTO FARM ITERATION ====================
--- Период повторных ударов: 150мс — агрессивнее дефолта, но ниже spam-detect порога.
-local AUTO_FARM_HOLD_TICK = 0.15
-
--- Порог мгновенного TP: только для очень близких блоков
-local INSTANT_TP_DIST = 6
+-- ==================== AUTO FARM ====================
+local AUTO_FARM_HOLD_TICK = 0.25
 
 local function pickNearestBlock()
     if not (oresFolder and clientHRP) then return nil end
@@ -383,10 +360,6 @@ local function pickNearestBlock()
     return nearest, nearestDist
 end
 
--- По умолчанию (hover ≈ 0) встаём точно в центр блока — сервер валидирует
--- радиус майнинга от этой точки. Anchor + noclip держат персонажа внутри блока.
--- При hover > 0 виснем НАД блоком (верхняя грань + offset), смотря вниз на него
--- — полезно только в играх, где сервер разрешает майнить издали.
 local function computeFarmTarget(block, jitter)
     local hover = math.max(Config.AutoFarmHover or 0, 0)
     if hover < 0.05 then
@@ -401,15 +374,6 @@ end
 
 local function farmStep()
     if not isCharacterAlive() then return end
-
-    -- Защита от смерти: восстанавливаем HP если сервер наносит урон
-    pcall(function()
-        local hum = getHumanoid()
-        if hum and hum.Health < hum.MaxHealth then
-            hum.Health = hum.MaxHealth
-        end
-    end)
-
     local axe = equipAxe()
     if not axe then return end
 
@@ -422,7 +386,7 @@ local function farmStep()
     local speed = math.max(Config.TweenSpeed, 5)
     local timeScale, posJitter = 1, Vector3.zero
     if Config.AntiDetectJitter then
-        timeScale = 1 + (math.random() - 0.5) * 0.15           -- ±7.5%
+        timeScale = 1 + (math.random() - 0.5) * 0.15
         posJitter = Vector3.new(
             (math.random() - 0.5) * 1.0,
             (math.random() - 0.5) * 0.3,
@@ -432,36 +396,31 @@ local function farmStep()
 
     local targetCF, targetPos = computeFarmTarget(block, posJitter)
     local moveDist  = (clientHRP.Position - targetPos).Magnitude
+    local tweenTime = math.max(moveDist / speed * timeScale, 0.05)
 
-    if moveDist < INSTANT_TP_DIST then
-        if clientHRP then clientHRP.CFrame = targetCF end
-    else
-        local tweenTime = math.max(moveDist / speed * timeScale, 0.1)
-        if activeTween then
-            pcall(function() activeTween:Cancel() end)
-            activeTween = nil
-        end
-        activeTween = TweenService:Create(
-            clientHRP,
-            TweenInfo.new(tweenTime, Enum.EasingStyle.Linear),
-            { CFrame = targetCF }
-        )
-        activeTween:Play()
-        activeTween.Completed:Wait()
+    if activeTween then
+        pcall(function() activeTween:Cancel() end)
         activeTween = nil
     end
+
+    activeTween = TweenService:Create(
+        clientHRP,
+        TweenInfo.new(tweenTime, Enum.EasingStyle.Linear),
+        { CFrame = targetCF }
+    )
+    activeTween:Play()
+    activeTween.Completed:Wait()
+    activeTween = nil
 
     if not (block and block.Parent and State.AutoFarm) then return end
     if clientHRP then clientHRP.CFrame = targetCF end
 
-    -- Пауза для репликации CFrame на сервер
     task.wait(0.05)
     if not (block and block.Parent and State.AutoFarm) then return end
 
     pcall(function() axe:Activate() end)
     pcall(function() remote:FireServer(block) end)
 
-    -- Повторные удары на ритме Tool.Activated пока блок не разрушен или таймаут.
     local maxHold = math.max(Config.AutoFarmHoldMax, 0.3)
     local t0 = os.clock()
     while State.AutoFarm
@@ -469,7 +428,6 @@ local function farmStep()
        and (os.clock() - t0) < maxHold do
         task.wait(AUTO_FARM_HOLD_TICK)
         if not (block.Parent and State.AutoFarm) then break end
-        -- Топор мог отлететь между итерациями (респавн, другой тул) — пере-экипируем.
         if not (axe and axe.Parent == client) then
             axe = equipAxe()
             if not axe then break end
@@ -482,27 +440,9 @@ local function farmStep()
     end
 end
 
--- ==================== FEATURE LIFECYCLE ====================
--- BodyVelocity вместо Anchored: держит HRP на месте без гравитации,
--- но НЕ блокирует репликацию CFrame на сервер. Anchored=true ломал
--- репликацию — сервер видел игрока на старой позиции (ghost fly).
 local function applyAutoFarmAnchor(state)
     if not clientHRP then return end
-    pcall(function()
-        if state then
-            local bv = clientHRP:FindFirstChild("AS_FarmBV")
-            if not bv then
-                bv = Instance.new("BodyVelocity")
-                bv.Name = "AS_FarmBV"
-                bv.Velocity = Vector3.zero
-                bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-                bv.Parent = clientHRP
-            end
-        else
-            local bv = clientHRP:FindFirstChild("AS_FarmBV")
-            if bv then bv:Destroy() end
-        end
-    end)
+    pcall(function() clientHRP.Anchored = state end)
 end
 
 local function startAutoFarm()
@@ -513,42 +453,14 @@ local function startAutoFarm()
 
     applyAutoFarmAnchor(true)
 
-    -- Защита от смерти: при получении урона восстанавливаем HP
-    disconnect("autoFarmHealth")
-    pcall(function()
-        local hum = getHumanoid()
-        if hum then
-            connections.autoFarmHealth = hum.HealthChanged:Connect(function(hp)
-                if State.AutoFarm and hp < hum.MaxHealth then
-                    pcall(function() hum.Health = hum.MaxHealth end)
-                end
-            end)
-        end
-    end)
-
-    -- После Respawn'а clientHRP обновляется — пере-якорим, если AutoFarm всё ещё on
     disconnect("autoFarmRespawn")
-    connections.autoFarmRespawn = localPlayer.CharacterAdded:Connect(function()
+    connections.autoFarmRespawn = localPlayer.CharacterAdded:Connect(nc(function()
         task.wait(0.5)
-        if State.AutoFarm then
-            applyAutoFarmAnchor(true)
-            pcall(function()
-                local hum = getHumanoid()
-                if hum then
-                    disconnect("autoFarmHealth")
-                    connections.autoFarmHealth = hum.HealthChanged:Connect(function(hp)
-                        if State.AutoFarm and hp < hum.MaxHealth then
-                            pcall(function() hum.Health = hum.MaxHealth end)
-                        end
-                    end)
-                end
-            end)
-        end
-    end)
+        if State.AutoFarm then applyAutoFarmAnchor(true) end
+    end))
 
-    activeFeatures.AutoFarm = task.spawn(function()
+    activeFeatures.AutoFarm = task.spawn(nc(function()
         while State.AutoFarm do
-            -- Мёртвый персонаж — спим до CharacterAdded'а. autoFarmRespawn ре-якорит HRP.
             if not isCharacterAlive() then
                 task.wait(0.3)
             else
@@ -558,10 +470,9 @@ local function startAutoFarm()
                     task.wait(0.5)
                 end
                 if not State.AutoFarm then break end
-                -- минимальная пауза между итерациями + микро-джиттер
-                local pause = 0.02
+                local pause = 0.05
                 if Config.AntiDetectJitter then
-                    pause = pause + math.random() * 0.03
+                    pause = pause + math.random() * 0.05
                 end
                 task.wait(pause)
             end
@@ -571,7 +482,7 @@ local function startAutoFarm()
             activeTween = nil
         end
         activeFeatures.AutoFarm = nil
-    end)
+    end))
 end
 
 local function stopAutoFarm()
@@ -581,57 +492,124 @@ local function stopAutoFarm()
         activeTween = nil
     end
     disconnect("autoFarmRespawn")
-    disconnect("autoFarmHealth")
     applyAutoFarmAnchor(false)
     if not State.Noclip then stopNoclip() end
 end
 
--- ==================== MOVEMENT FEATURES ====================
--- Touch-based movement state (replaces keyboard keys for Delta Mobile)
-local touchFlyUp   = false          -- set by up button
-local touchFlyDown = false          -- set by down button
+-- ==================== MOVEMENT ====================
+local FlyKeys   = { W=false, A=false, S=false, D=false, Space=false, LeftShift=false }
+local BlinkKeys = { W=false, A=false, S=false, D=false }
 
--- Forward declarations for mobile controls (created after screenGui)
-local movementJoystick, flyUpButton, flyDownButton
-local getJoystickDir    -- function returning Vector3
-
-local function showMoveControls(withVertical)
-    if movementJoystick then movementJoystick.Visible = true end
+local function vectorFromKeys(keys, withVertical)
+    local d = Vector3.new(0, 0, 0)
+    if keys.W then d = d + Vector3.new(0, 0, -1) end
+    if keys.S then d = d + Vector3.new(0, 0,  1) end
+    if keys.A then d = d + Vector3.new(-1, 0, 0) end
+    if keys.D then d = d + Vector3.new( 1, 0, 0) end
     if withVertical then
-        if flyUpButton then flyUpButton.Visible = true end
-        if flyDownButton then flyDownButton.Visible = true end
+        if keys.Space     then d = d + Vector3.new(0,  1, 0) end
+        if keys.LeftShift then d = d + Vector3.new(0, -1, 0) end
+    end
+    return d
+end
+
+-- Delta Mobile: CAS с createMobileButton=true. KeyCode — формальный идентификатор.
+local MOVEMENT_CAS_NAMES = {}
+local movementCasBound = false
+
+local function unbindMovementCAS()
+    if not movementCasBound then return end
+    movementCasBound = false
+    for _, name in ipairs(MOVEMENT_CAS_NAMES) do
+        pcall(function() ContextActionService:UnbindAction(name) end)
+    end
+    while #MOVEMENT_CAS_NAMES > 0 do
+        table.remove(MOVEMENT_CAS_NAMES)
+    end
+end
+
+local function bindMovementCAS()
+    if movementCasBound then return end
+    movementCasBound = true
+    local pri = Enum.ContextActionPriority.High.Value
+    local function sinkIfMoving()
+        return (State.Fly or State.Blink) and Enum.ContextActionResult.Sink or Enum.ContextActionResult.Pass
+    end
+    local horiz = {
+        { "AS_Mv_W", Enum.KeyCode.W, "W" },
+        { "AS_Mv_A", Enum.KeyCode.A, "A" },
+        { "AS_Mv_S", Enum.KeyCode.S, "S" },
+        { "AS_Mv_D", Enum.KeyCode.D, "D" },
+    }
+    for _, row in ipairs(horiz) do
+        local name, kc, k = row[1], row[2], row[3]
+        MOVEMENT_CAS_NAMES[#MOVEMENT_CAS_NAMES + 1] = name
+        ContextActionService:BindActionAtPriority(
+            name,
+            nc(function(_, state)
+                local down = state == Enum.UserInputState.Begin
+                if State.Fly then FlyKeys[k] = down end
+                if State.Blink then BlinkKeys[k] = down end
+                return sinkIfMoving()
+            end),
+            true, -- createMobileButton = true ← Delta Mobile required
+            pri,
+            kc
+        )
+    end
+    MOVEMENT_CAS_NAMES[#MOVEMENT_CAS_NAMES + 1] = "AS_Mv_Sp"
+    ContextActionService:BindActionAtPriority(
+        "AS_Mv_Sp",
+        nc(function(_, state)
+            if not State.Fly then return Enum.ContextActionResult.Pass end
+            FlyKeys.Space = state == Enum.UserInputState.Begin
+            return Enum.ContextActionResult.Sink
+        end),
+        true, -- createMobileButton = true
+        pri,
+        Enum.KeyCode.Space
+    )
+    MOVEMENT_CAS_NAMES[#MOVEMENT_CAS_NAMES + 1] = "AS_Mv_Sh"
+    ContextActionService:BindActionAtPriority(
+        "AS_Mv_Sh",
+        nc(function(_, state)
+            if not State.Fly then return Enum.ContextActionResult.Pass end
+            FlyKeys.LeftShift = state == Enum.UserInputState.Begin
+            return Enum.ContextActionResult.Sink
+        end),
+        true, -- createMobileButton = true
+        pri,
+        Enum.KeyCode.LeftShift
+    )
+end
+
+local function refreshMovementCAS()
+    if State.Fly or State.Blink then
+        bindMovementCAS()
+    else
+        unbindMovementCAS()
     end
 end
 
 local function startFly()
     if connections.flyStep then return end
-    showMoveControls(true)
-
-    connections.flyStep = RunService.RenderStepped:Connect(function(dt)
+    connections.flyStep = RunService.RenderStepped:Connect(nc(function(dt)
         if not (State.Fly and clientHRP) then return end
-        local dir = getJoystickDir and getJoystickDir() or Vector3.zero
-        local vert = 0
-        if touchFlyUp   then vert = vert + 1 end
-        if touchFlyDown then vert = vert - 1 end
-        local d = dir + Vector3.new(0, vert, 0)
+        local d = vectorFromKeys(FlyKeys, true)
         if d.Magnitude > 0 then
-            local cam = workspace.CurrentCamera
+            local cam = Workspace.CurrentCamera
             if not cam then return end
             local world = cam.CFrame:VectorToWorldSpace(d)
             clientHRP.CFrame = clientHRP.CFrame + world.Unit * math.max(Config.FlySpeed, 5) * dt
         end
-    end)
+    end))
+    refreshMovementCAS()
 end
 
 local function stopFly()
+    for k in pairs(FlyKeys) do FlyKeys[k] = false end
     disconnect("flyStep")
-    if flyUpButton then flyUpButton.Visible = false end
-    if flyDownButton then flyDownButton.Visible = false end
-    touchFlyUp = false
-    touchFlyDown = false
-    if not State.Blink then
-        if movementJoystick then movementJoystick.Visible = false end
-    end
+    refreshMovementCAS()
 end
 
 local originalWalkSpeed
@@ -647,10 +625,10 @@ end
 local function startSpeed()
     applySpeedToCharacter(client)
     disconnect("speedChar")
-    connections.speedChar = localPlayer.CharacterAdded:Connect(function(newChar)
+    connections.speedChar = localPlayer.CharacterAdded:Connect(nc(function(newChar)
         task.wait(0.3)
         if State.Speed then applySpeedToCharacter(newChar) end
-    end)
+    end))
 end
 
 local function stopSpeed()
@@ -675,10 +653,10 @@ end
 local function startHighJump()
     applyJumpToCharacter(client)
     disconnect("jumpChar")
-    connections.jumpChar = localPlayer.CharacterAdded:Connect(function(newChar)
+    connections.jumpChar = localPlayer.CharacterAdded:Connect(nc(function(newChar)
         task.wait(0.3)
         if State.HighJump then applyJumpToCharacter(newChar) end
-    end)
+    end))
 end
 
 local function stopHighJump()
@@ -691,7 +669,7 @@ end
 
 local function startFastFall()
     if connections.fastFallStep then return end
-    connections.fastFallStep = RunService.RenderStepped:Connect(function()
+    connections.fastFallStep = RunService.RenderStepped:Connect(nc(function()
         if not (State.FastFall and client and clientHRP) then return end
         local hum = client:FindFirstChildOfClass("Humanoid")
         if not hum then return end
@@ -700,7 +678,7 @@ local function startFastFall()
            and clientHRP.AssemblyLinearVelocity.Y < 0 then
             clientHRP.CFrame = clientHRP.CFrame + Vector3.new(0, -math.max(Config.FastFallStrength, 1), 0)
         end
-    end)
+    end))
 end
 
 local function stopFastFall()
@@ -716,10 +694,10 @@ end
 local function startNoRotate()
     applyNoRotateToCharacter(client)
     disconnect("noRotateChar")
-    connections.noRotateChar = localPlayer.CharacterAdded:Connect(function(newChar)
+    connections.noRotateChar = localPlayer.CharacterAdded:Connect(nc(function(newChar)
         task.wait(0.3)
         if State.NoRotate then applyNoRotateToCharacter(newChar) end
-    end)
+    end))
 end
 
 local function stopNoRotate()
@@ -730,7 +708,9 @@ local function stopNoRotate()
     end
 end
 
+-- ==================== BLINK (Delta Mobile: TouchTapInWorld) ====================
 local blinkPart
+
 local function startBlink()
     if not clientHRP then
         Notify("SkyWars", "Blink: ждём персонажа.")
@@ -738,16 +718,7 @@ local function startBlink()
         return
     end
     if connections.blinkStep then return end
-    pcall(function()
-        local bv = clientHRP:FindFirstChild("AS_BlinkBV")
-        if not bv then
-            bv = Instance.new("BodyVelocity")
-            bv.Name = "AS_BlinkBV"
-            bv.Velocity = Vector3.zero
-            bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-            bv.Parent = clientHRP
-        end
-    end)
+    pcall(function() clientHRP.Anchored = true end)
 
     blinkPart = Instance.new("Part")
     blinkPart.Name         = "AS_BlinkMarker"
@@ -758,32 +729,48 @@ local function startBlink()
     blinkPart.Color        = Color3.fromRGB(255, 255, 0)
     blinkPart.Material     = Enum.Material.Neon
     blinkPart.CFrame       = clientHRP.CFrame
-    blinkPart.Parent       = workspace
+    blinkPart.Parent       = Workspace
 
-    showMoveControls(false)
+    -- Delta Mobile: перемещение маркера через тач по миру
+    connections.blinkTouchWorld = UserInputService.TouchTapInWorld:Connect(nc(function(pos, processed)
+        if processed or not State.Blink or not blinkPart then return end
+        -- Raycast вниз для определения высоты, или используем текущую Y
+        local rayOrigin = Vector3.new(pos.X, blinkPart.Position.Y + 50, pos.Z)
+        local rayDir = Vector3.new(0, -100, 0)
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+        raycastParams.FilterDescendantsInstances = {client, blinkPart}
+        local result = Workspace:Raycast(rayOrigin, rayDir, raycastParams)
+        local y = blinkPart.Position.Y
+        if result then
+            y = result.Position.Y + 1
+        end
+        blinkPart.CFrame = CFrame.new(pos.X, y, pos.Z)
+    end))
 
-    connections.blinkStep = RunService.RenderStepped:Connect(function(dt)
+    -- Также оставляем CAS-управление для тех, кто хочет двигать кнопками
+    connections.blinkStep = RunService.RenderStepped:Connect(nc(function(dt)
         if not (State.Blink and blinkPart) then return end
-        local d = getJoystickDir and getJoystickDir() or Vector3.zero
+        local d = vectorFromKeys(BlinkKeys, false)
         if d.Magnitude > 0 then
-            local cam = workspace.CurrentCamera
+            local cam = Workspace.CurrentCamera
             if not cam then return end
             local world = cam.CFrame:VectorToWorldSpace(d)
             blinkPart.CFrame = blinkPart.CFrame + world.Unit * math.max(Config.BlinkSpeed, 5) * dt
         end
-    end)
+    end))
+    refreshMovementCAS()
 end
 
 local function stopBlink()
+    for k in pairs(BlinkKeys) do BlinkKeys[k] = false end
     disconnect("blinkStep")
-    if not State.Fly then
-        if movementJoystick then movementJoystick.Visible = false end
-    end
+    disconnect("blinkTouchWorld")
+    refreshMovementCAS()
     if blinkPart and clientHRP then
         pcall(function()
-            local bv = clientHRP:FindFirstChild("AS_BlinkBV")
-            if bv then bv:Destroy() end
-            clientHRP.CFrame = blinkPart.CFrame
+            clientHRP.Anchored = false
+            clientHRP.CFrame   = blinkPart.CFrame
         end)
     end
     if blinkPart then
@@ -813,7 +800,7 @@ end
 
 local function startTPaura()
     if connections.tpauraStep then return end
-    connections.tpauraStep = RunService.Heartbeat:Connect(function()
+    connections.tpauraStep = RunService.Heartbeat:Connect(nc(function()
         if not (State.TPaura and client and clientHRP) then return end
         local hum = client:FindFirstChildOfClass("Humanoid")
         if not hum or hum.Health <= 0 then return end
@@ -822,17 +809,17 @@ local function startTPaura()
             local pos = target.Position - Vector3.new(0, 4, 0)
             clientHRP.CFrame = CFrame.new(pos, target.Position)
         end
-    end)
+    end))
 end
 
 local function stopTPaura()
     disconnect("tpauraStep")
 end
 
--- ==================== COMBAT FEATURES ====================
+-- ==================== COMBAT ====================
 local function startAutoClicker()
     if activeFeatures.AutoClicker then return end
-    activeFeatures.AutoClicker = task.spawn(function()
+    activeFeatures.AutoClicker = task.spawn(nc(function()
         while State.AutoClicker do
             if client then
                 local tool = client:FindFirstChildOfClass("Tool")
@@ -844,7 +831,7 @@ local function startAutoClicker()
             task.wait(1 / cps)
         end
         activeFeatures.AutoClicker = nil
-    end)
+    end))
 end
 
 local function stopAutoClicker()
@@ -853,7 +840,7 @@ end
 
 local function startAutoBow()
     if activeFeatures.AutoBow then return end
-    activeFeatures.AutoBow = task.spawn(function()
+    activeFeatures.AutoBow = task.spawn(nc(function()
         while State.AutoBow do
             if client then
                 local bow = client:FindFirstChild("Bow")
@@ -871,24 +858,24 @@ local function startAutoBow()
             task.wait(1)
         end
         activeFeatures.AutoBow = nil
-    end)
+    end))
 end
 
 local function stopAutoBow()
     activeFeatures.AutoBow = nil
 end
 
--- ==================== VISUAL FEATURES ====================
+-- ==================== VISUAL ====================
 local originalFOV
 local function startFOV()
-    local cam = workspace.CurrentCamera
+    local cam = Workspace.CurrentCamera
     if not cam then return end
     if originalFOV == nil then originalFOV = cam.FieldOfView end
     cam.FieldOfView = math.clamp(Config.FovValue, 1, 120)
 end
 
 local function stopFOV()
-    local cam = workspace.CurrentCamera
+    local cam = Workspace.CurrentCamera
     if cam and originalFOV then
         pcall(function() cam.FieldOfView = originalFOV end)
     end
@@ -917,18 +904,18 @@ end
 local function startChams()
     for _, p in ipairs(Players:GetPlayers()) do applyCham(p) end
     disconnect("chamsPlayerAdded")
-    connections.chamsPlayerAdded = Players.PlayerAdded:Connect(function(p)
-        p.CharacterAdded:Connect(function()
+    connections.chamsPlayerAdded = Players.PlayerAdded:Connect(nc(function(p)
+        p.CharacterAdded:Connect(nc(function()
             if State.Chams then task.wait(1); applyCham(p) end
-        end)
-    end)
+        end))
+    end))
     disconnect("chamsThread")
-    connections.chamsThread = task.spawn(function()
+    connections.chamsThread = task.spawn(nc(function()
         while State.Chams do
             for _, p in ipairs(Players:GetPlayers()) do applyCham(p) end
             task.wait(2)
         end
-    end)
+    end))
 end
 
 local function stopChams()
@@ -971,7 +958,7 @@ end
 local function startESP()
     for _, p in ipairs(Players:GetPlayers()) do applyESP(p) end
     disconnect("espThread")
-    connections.espThread = task.spawn(function()
+    connections.espThread = task.spawn(nc(function()
         while State.ESP do
             for _, p in ipairs(Players:GetPlayers()) do
                 applyESP(p)
@@ -991,7 +978,7 @@ local function startESP()
             end
             task.wait(0.3)
         end
-    end)
+    end))
 end
 
 local function stopESP()
@@ -1023,7 +1010,7 @@ end
 
 local function startOreESP()
     disconnect("oreEspThread")
-    connections.oreEspThread = task.spawn(function()
+    connections.oreEspThread = task.spawn(nc(function()
         while State.OreESP do
             if oresFolder then
                 for _, blk in ipairs(oresFolder:GetChildren()) do
@@ -1032,7 +1019,7 @@ local function startOreESP()
             end
             task.wait(1)
         end
-    end)
+    end))
 end
 
 local function stopOreESP()
@@ -1071,12 +1058,12 @@ end
 
 local function startNoRender()
     disconnect("noRenderThread")
-    connections.noRenderThread = task.spawn(function()
+    connections.noRenderThread = task.spawn(nc(function()
         while State.NoRender do
             pcall(noRenderStep)
             task.wait(1)
         end
-    end)
+    end))
 end
 
 local function stopNoRender()
@@ -1088,7 +1075,6 @@ local FEATURES = {
     Noclip       = { onStart = startNoclip,      onStop = stopNoclip      },
     AntiVoid     = { onStart = ensureAntiVoid,   onStop = destroyAntiVoid },
 
-    -- Movement
     Fly          = { onStart = startFly,         onStop = stopFly         },
     Speed        = { onStart = startSpeed,       onStop = stopSpeed       },
     HighJump     = { onStart = startHighJump,    onStop = stopHighJump    },
@@ -1097,11 +1083,9 @@ local FEATURES = {
     Blink        = { onStart = startBlink,       onStop = stopBlink       },
     TPaura       = { onStart = startTPaura,      onStop = stopTPaura      },
 
-    -- Combat
     AutoClicker  = { onStart = startAutoClicker, onStop = stopAutoClicker },
     AutoBow      = { onStart = startAutoBow,     onStop = stopAutoBow     },
 
-    -- Visual
     FOV          = { onStart = startFOV,         onStop = stopFOV         },
     Chams        = { onStart = startChams,       onStop = stopChams       },
     ESP          = { onStart = startESP,         onStop = stopESP         },
@@ -1123,12 +1107,13 @@ local function toggleFeature(name, value)
     if NS.RefreshFooterUI then NS.RefreshFooterUI() end
 end
 
--- ==================== GLOBAL CLEANUP (для повторного запуска) ====================
+-- ==================== GLOBAL CLEANUP ====================
 NS.cleanup = function()
     for name in pairs(State) do State[name] = false end
     for _, def in pairs(FEATURES) do
         if def and def.onStop then pcall(def.onStop) end
     end
+    unbindMovementCAS()
     for k in pairs(connections) do disconnect(k) end
     if rescanThread then pcall(task.cancel, rescanThread) end
     if charAddedConn then pcall(function() charAddedConn:Disconnect() end) end
@@ -1142,7 +1127,7 @@ NS.cleanup = function()
     end)
 end
 
--- ==================== UI (dark mode, mobile-adaptive) ====================
+-- ==================== UI (dark mode, Delta Mobile touch-native) ====================
 pcall(function()
     for _, v in ipairs(CoreGui:GetChildren()) do
         if v:IsA("ScreenGui") and (v.Name == "AbramSkyGui" or v.Name:match("^AS_Sky")) then
@@ -1195,18 +1180,14 @@ screenGui.Name = "AS_Sky_" .. HttpService:GenerateGUID(false):sub(1, 8)
 screenGui.ResetOnSpawn = false
 screenGui.Parent = (getHui and getHui()) or CoreGui
 
-local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
-local camera = workspace.CurrentCamera
+local camera = Workspace.CurrentCamera
 local screenSize = camera and camera.ViewportSize or Vector2.new(1920, 1080)
 
 local BASE_W, BASE_H = 340, 440
-
 local mobileScale = 1
-if isMobile then
-    local scaleW = (screenSize.X * 0.55) / BASE_W
-    local scaleH = (screenSize.Y * 0.85) / BASE_H
-    mobileScale = math.min(scaleW, scaleH, 1)
-end
+local scaleW = (screenSize.X * 0.55) / BASE_W
+local scaleH = (screenSize.Y * 0.85) / BASE_H
+mobileScale = math.min(scaleW, scaleH, 1)
 
 local main = Instance.new("Frame")
 main.Size = UDim2.new(0, BASE_W, 0, BASE_H)
@@ -1219,11 +1200,9 @@ main.Parent = screenGui
 addCorner(main, 12)
 addStroke(main, C.Border, 1)
 
-if isMobile then
-    local uiScale = Instance.new("UIScale")
-    uiScale.Scale = mobileScale
-    uiScale.Parent = main
-end
+local uiScale = Instance.new("UIScale")
+uiScale.Scale = mobileScale
+uiScale.Parent = main
 
 -- ===== TITLE BAR =====
 local TITLE_H = 40
@@ -1270,31 +1249,31 @@ title.Parent = titleBar
 local kbdChip = Instance.new("Frame")
 kbdChip.AnchorPoint = Vector2.new(1, 0.5)
 kbdChip.Position = UDim2.new(1, -12, 0.5, 0)
-kbdChip.Size = UDim2.new(0, 78, 0, 22)
+kbdChip.Size = UDim2.new(0, 120, 0, 22)
 kbdChip.BackgroundColor3 = C.BG
 kbdChip.BorderSizePixel = 0
-kbdChip.Visible = not isMobile
+kbdChip.Visible = true
 kbdChip.Parent = titleBar
 addCorner(kbdChip, 4)
 addStroke(kbdChip, C.Border, 1)
 
 local kbdKey = Instance.new("TextLabel")
-kbdKey.Size = UDim2.new(0, 22, 0, 16)
+kbdKey.Size = UDim2.new(0, 28, 0, 16)
 kbdKey.Position = UDim2.new(0, 3, 0.5, -8)
 kbdKey.BackgroundColor3 = C.SurfaceHi
 kbdKey.Font = Enum.Font.GothamBold
-kbdKey.Text = "Alt"
+kbdKey.Text = "Δ"
 kbdKey.TextSize = 10
 kbdKey.TextColor3 = C.Text
 kbdKey.Parent = kbdChip
 addCorner(kbdKey, 3)
 
 local kbdLabel = Instance.new("TextLabel")
-kbdLabel.Position = UDim2.new(0, 28, 0, 0)
-kbdLabel.Size = UDim2.new(1, -28, 1, 0)
+kbdLabel.Position = UDim2.new(0, 34, 0, 0)
+kbdLabel.Size = UDim2.new(1, -36, 1, 0)
 kbdLabel.BackgroundTransparency = 1
 kbdLabel.Font = Enum.Font.GothamMedium
-kbdLabel.Text = "hide menu"
+kbdLabel.Text = "delta mobile"
 kbdLabel.TextSize = 10
 kbdLabel.TextColor3 = C.TextDim
 kbdLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -1343,7 +1322,10 @@ for i, tabName in ipairs(tabNames) do
     btn.TextColor3 = C.TextMuted
     btn.Parent = tabsBar
     addCorner(btn, 6)
-    btn.MouseButton1Click:Connect(function() setActiveTab(tabName) end)
+    -- Delta Mobile: только TouchTap, никакого InputBegan/Activated fallback
+    btn.TouchTap:Connect(nc(function()
+        setActiveTab(tabName)
+    end))
     tabButtons[tabName] = btn
 end
 
@@ -1441,7 +1423,7 @@ footerUser.TextColor3 = C.TextMuted
 footerUser.TextXAlignment = Enum.TextXAlignment.Right
 footerUser.Parent = footer
 
--- ===== FLOATING PILL =====
+-- ===== FLOATING PILL (menu toggle via TouchTap only) =====
 local pill = Instance.new("TextButton")
 pill.Size = UDim2.new(0, 48, 0, 48)
 pill.Position = UDim2.new(0, 20, 0.5, -24)
@@ -1473,6 +1455,30 @@ addCorner(pillStatusDot, 5)
 
 pill.MouseEnter:Connect(function() tw(pill, { BackgroundColor3 = C.SurfaceHi }) end)
 pill.MouseLeave:Connect(function() tw(pill, { BackgroundColor3 = C.Surface   }) end)
+
+-- Delta Mobile: плавающая SW-кнопка, управление только TouchTap
+local mobileBtn = Instance.new("TextButton")
+mobileBtn.Name = "AS_MobileToggle"
+mobileBtn.Size = UDim2.new(0, 44, 0, 44)
+mobileBtn.Position = UDim2.new(1, -54, 0, 10)
+mobileBtn.BackgroundColor3 = C.Accent
+mobileBtn.AutoButtonColor = false
+mobileBtn.Text = ""
+mobileBtn.Active = true
+mobileBtn.ZIndex = 10
+mobileBtn.Parent = screenGui
+addCorner(mobileBtn, 22)
+addStroke(mobileBtn, C.BorderHi, 1)
+
+local mobileBtnIcon = Instance.new("TextLabel")
+mobileBtnIcon.Size = UDim2.new(1, 0, 1, 0)
+mobileBtnIcon.BackgroundTransparency = 1
+mobileBtnIcon.Font = Enum.Font.GothamBold
+mobileBtnIcon.Text = "SW"
+mobileBtnIcon.TextSize = 16
+mobileBtnIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
+mobileBtnIcon.ZIndex = 11
+mobileBtnIcon.Parent = mobileBtn
 
 NS.RefreshFooterUI = function()
     local count = 0
@@ -1563,21 +1569,23 @@ end
 
 local function createToggle(parentPage, label, key)
     local row, setVisual = buildToggleRow(parentPage, label)
-    row.MouseButton1Click:Connect(function()
+    local function onTap()
         toggleFeature(key, not State[key])
         setVisual(State[key], true)
-    end)
+    end
+    row.TouchTap:Connect(nc(onTap))
     setVisual(State[key], false)
 end
 
 local function createConfigToggle(parentPage, label, configKey, onChange)
     local row, setVisual = buildToggleRow(parentPage, label)
-    row.MouseButton1Click:Connect(function()
+    local function onTap()
         Config[configKey] = not Config[configKey]
         saveConfig()
         setVisual(Config[configKey], true)
         if onChange then pcall(onChange, Config[configKey]) end
-    end)
+    end
+    row.TouchTap:Connect(nc(onTap))
     setVisual(Config[configKey], false)
 end
 
@@ -1684,12 +1692,12 @@ createToggle(pageMain, "Auto Clicker", "AutoClicker")
 createToggle(pageMain, "Auto Bow",     "AutoBow")
 
 createSection(pageMovement, "Movement")
-createToggle(pageMovement, "Fly (Joystick + UP/DN)", "Fly")
+createToggle(pageMovement, "Fly (CAS move + up/down)", "Fly")
 createToggle(pageMovement, "Speed",        "Speed")
 createToggle(pageMovement, "High Jump",    "HighJump")
 createToggle(pageMovement, "Fast Fall",    "FastFall")
 createToggle(pageMovement, "No Rotate",    "NoRotate")
-createToggle(pageMovement, "Blink (Joystick)", "Blink")
+createToggle(pageMovement, "Blink (Touch world)", "Blink")
 createToggle(pageMovement, "TP Aura",      "TPaura")
 
 createSection(pageVisual, "Camera")
@@ -1773,7 +1781,7 @@ createInput(pageSettings, "FOV value", Config.FovValue, function(v)
     Config.FovValue = math.clamp(tonumber(v) or DEFAULT_CONFIG.FovValue, 30, 120)
     saveConfig()
     if State.FOV then
-        local cam = workspace.CurrentCamera
+        local cam = Workspace.CurrentCamera
         if cam then pcall(function() cam.FieldOfView = Config.FovValue end) end
     end
 end)
@@ -1783,13 +1791,13 @@ createSection(pageInfo, "About")
 createReadOnlyRow(pageInfo, "Script",       "SkyWars")
 createReadOnlyRow(pageInfo, "Version",      VERSION)
 createReadOnlyRow(pageInfo, "Player",       localPlayer.Name)
-createReadOnlyRow(pageInfo, "Platform",     isMobile and "Mobile" or "PC")
+createReadOnlyRow(pageInfo, "Platform",     "Mobile (Delta)")
 createReadOnlyRow(pageInfo, "FileSystem",   hasFS and "available" or "n/a")
-createReadOnlyRow(pageInfo, "Executor",     IS_DELTA and "Delta" or "?")
+createReadOnlyRow(pageInfo, "Executor",    executorName)
 createSection(pageInfo, "Tips")
 do
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1, 0, 0, 72)
+    lbl.Size = UDim2.new(1, 0, 0, 100)
     lbl.BackgroundColor3 = C.Surface
     lbl.BorderSizePixel = 0
     lbl.TextColor3 = C.TextDim
@@ -1798,7 +1806,7 @@ do
     lbl.TextWrapped = true
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.TextYAlignment = Enum.TextYAlignment.Top
-    lbl.Text = "  · Auto Farm включает Noclip и Anti-Void автоматически.\n  · Карта обновляется между раундами — настраивай в Settings.\n  · Fly/Blink — джойстик слева; Fly: UP/DN кнопки справа.\n  · Blink возвращает на маркер при выключении.\n  · Anti-Detect Jitter + hookmetamethod anti-detect.\n  · Оптимизировано для Delta Mobile."
+    lbl.Text = "  · Auto Farm включает Noclip и Anti-Void автоматически.\n  · Карта обновляется между раундами — настраивай в Settings.\n  · Fly: CAS-экранные кнопки направления (Delta Mobile).\n  · Blink: тапни по миру, чтобы поставить маркер.\n  · Меню: SW pill или плавающая SW-кнопка.\n  · Anti-Detect Jitter — шум в Tween и позиции."
     lbl.Parent = pageInfo
     addCorner(lbl, 8)
     local pad = Instance.new("UIPadding", lbl)
@@ -1810,210 +1818,7 @@ end
 setActiveTab("Main")
 NS.RefreshFooterUI()
 
--- ===== MOBILE TOUCH CONTROLS (Joystick + Fly buttons) =====
-do
-    local JOY_SIZE  = 120
-    local THUMB_SZ  = 48
-    local BTN_SZ    = 56
-
-    -- Movement joystick (bottom-left)
-    local jOuter = Instance.new("Frame")
-    jOuter.Name = "AS_MoveJoystick"
-    jOuter.Size = UDim2.new(0, JOY_SIZE, 0, JOY_SIZE)
-    jOuter.Position = UDim2.new(0, 80, 1, -80)
-    jOuter.AnchorPoint = Vector2.new(0.5, 0.5)
-    jOuter.BackgroundColor3 = C.Surface
-    jOuter.BackgroundTransparency = 0.5
-    jOuter.Visible = false
-    jOuter.Active = true
-    jOuter.Parent = screenGui
-    addCorner(jOuter, JOY_SIZE / 2)
-    addStroke(jOuter, C.BorderHi, 2)
-
-    local jThumb = Instance.new("Frame")
-    jThumb.Name = "Thumb"
-    jThumb.Size = UDim2.new(0, THUMB_SZ, 0, THUMB_SZ)
-    jThumb.Position = UDim2.new(0.5, 0, 0.5, 0)
-    jThumb.AnchorPoint = Vector2.new(0.5, 0.5)
-    jThumb.BackgroundColor3 = C.Accent
-    jThumb.BackgroundTransparency = 0.2
-    jThumb.Parent = jOuter
-    addCorner(jThumb, THUMB_SZ / 2)
-
-    local jDir = Vector3.zero
-
-    jOuter.InputBegan:Connect(function(input)
-        if input.UserInputType ~= Enum.UserInputType.Touch then return end
-        local function updateJoy()
-            local center = jOuter.AbsolutePosition + jOuter.AbsoluteSize / 2
-            local dx = input.Position.X - center.X
-            local dy = input.Position.Y - center.Y
-            local delta = Vector2.new(dx, dy)
-            local maxR = JOY_SIZE / 2 - THUMB_SZ / 4
-            if delta.Magnitude > maxR then delta = delta.Unit * maxR end
-            jThumb.Position = UDim2.new(0.5, delta.X, 0.5, delta.Y)
-            local norm = delta / maxR
-            jDir = Vector3.new(norm.X, 0, norm.Y)
-        end
-        updateJoy()
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                jThumb.Position = UDim2.new(0.5, 0, 0.5, 0)
-                jDir = Vector3.zero
-                return
-            end
-            updateJoy()
-        end)
-    end)
-
-    movementJoystick = jOuter
-    getJoystickDir = function() return jDir end
-
-    -- Fly Up button (bottom-right, higher)
-    local upBtn = Instance.new("TextButton")
-    upBtn.Name = "AS_FlyUp"
-    upBtn.Size = UDim2.new(0, BTN_SZ, 0, BTN_SZ)
-    upBtn.Position = UDim2.new(1, -50, 1, -140)
-    upBtn.AnchorPoint = Vector2.new(0.5, 0.5)
-    upBtn.BackgroundColor3 = C.Surface
-    upBtn.BackgroundTransparency = 0.4
-    upBtn.AutoButtonColor = false
-    upBtn.Font = Enum.Font.GothamBold
-    upBtn.Text = "UP"
-    upBtn.TextSize = 16
-    upBtn.TextColor3 = C.Text
-    upBtn.Visible = false
-    upBtn.Active = true
-    upBtn.Parent = screenGui
-    addCorner(upBtn, BTN_SZ / 2)
-    addStroke(upBtn, C.BorderHi, 1)
-
-    upBtn.InputBegan:Connect(function(input)
-        if input.UserInputType ~= Enum.UserInputType.Touch then return end
-        touchFlyUp = true
-        tw(upBtn, { BackgroundTransparency = 0.1 })
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                touchFlyUp = false
-                tw(upBtn, { BackgroundTransparency = 0.4 })
-            end
-        end)
-    end)
-
-    -- Fly Down button (bottom-right, lower)
-    local downBtn = Instance.new("TextButton")
-    downBtn.Name = "AS_FlyDown"
-    downBtn.Size = UDim2.new(0, BTN_SZ, 0, BTN_SZ)
-    downBtn.Position = UDim2.new(1, -50, 1, -75)
-    downBtn.AnchorPoint = Vector2.new(0.5, 0.5)
-    downBtn.BackgroundColor3 = C.Surface
-    downBtn.BackgroundTransparency = 0.4
-    downBtn.AutoButtonColor = false
-    downBtn.Font = Enum.Font.GothamBold
-    downBtn.Text = "DN"
-    downBtn.TextSize = 16
-    downBtn.TextColor3 = C.Text
-    downBtn.Visible = false
-    downBtn.Active = true
-    downBtn.Parent = screenGui
-    addCorner(downBtn, BTN_SZ / 2)
-    addStroke(downBtn, C.BorderHi, 1)
-
-    downBtn.InputBegan:Connect(function(input)
-        if input.UserInputType ~= Enum.UserInputType.Touch then return end
-        touchFlyDown = true
-        tw(downBtn, { BackgroundTransparency = 0.1 })
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                touchFlyDown = false
-                tw(downBtn, { BackgroundTransparency = 0.4 })
-            end
-        end)
-    end)
-
-    flyUpButton = upBtn
-    flyDownButton = downBtn
-end
-
--- ===== DRAG & ALT HIDE =====
-local draggingMain = false
-local dragPending  = false
-local dragStartM, startPosM
-local MAIN_DRAG_THRESHOLD = 10
-
-local pillDrag = false
-local pDragStart, pStartPos, pMoved
-local DRAG_THRESHOLD = 15
-
-local function isInsideMain(touchPos)
-    local uiScaleObj = main:FindFirstChildOfClass("UIScale")
-    local s = uiScaleObj and uiScaleObj.Scale or 1
-    local vp = camera and camera.ViewportSize or Vector2.new(1920, 1080)
-    local cx = vp.X * main.Position.X.Scale + main.Position.X.Offset
-    local cy = vp.Y * main.Position.Y.Scale + main.Position.Y.Offset
-    local hw = (BASE_W * s) / 2
-    local hh = (BASE_H * s) / 2
-    return touchPos.X >= cx - hw and touchPos.X <= cx + hw
-       and touchPos.Y >= cy - hh and touchPos.Y <= cy + hh
-end
-
-UserInputService.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-    or input.UserInputType == Enum.UserInputType.Touch then
-        if main.Visible and isInsideMain(input.Position) then
-            dragPending = true
-            draggingMain = false
-            dragStartM = input.Position
-            startPosM = main.Position
-        end
-    end
-end)
-
-pill.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-    or input.UserInputType == Enum.UserInputType.Touch then
-        pillDrag = true
-        pMoved = false
-        pDragStart = input.Position
-        pStartPos = pill.Position
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement
-    or input.UserInputType == Enum.UserInputType.Touch then
-        if dragPending and not draggingMain then
-            if (input.Position - dragStartM).Magnitude > MAIN_DRAG_THRESHOLD then
-                draggingMain = true
-                dragPending = false
-            end
-        end
-        if draggingMain then
-            local d = input.Position - dragStartM
-            main.Position = UDim2.new(
-                startPosM.X.Scale, startPosM.X.Offset + d.X,
-                startPosM.Y.Scale, startPosM.Y.Offset + d.Y
-            )
-        elseif pillDrag then
-            local d = input.Position - pDragStart
-            if d.Magnitude > DRAG_THRESHOLD then pMoved = true end
-            pill.Position = UDim2.new(
-                pStartPos.X.Scale, pStartPos.X.Offset + d.X,
-                pStartPos.Y.Scale, pStartPos.Y.Offset + d.Y
-            )
-        end
-    end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-    or input.UserInputType == Enum.UserInputType.Touch then
-        draggingMain = false
-        dragPending = false
-        pillDrag = false
-    end
-end)
-
+-- ===== MENU TOGGLE (TouchTap only, no InputBegan, no CAS menu key) =====
 local hidden = false
 local function toggleMenu()
     hidden = not hidden
@@ -2035,65 +1840,17 @@ local function toggleMenu()
     end
 end
 
-pill.MouseButton1Click:Connect(function()
-    if not pMoved then toggleMenu() end
-end)
+-- Delta Mobile: только TouchTap. Никакого UserInputService.InputBegan для drag или toggle.
+pill.TouchTap:Connect(nc(function()
+    toggleMenu()
+end))
 
--- Alt toggle removed: Delta Mobile — all input must be touch-based.
--- Use the floating pill or mobile button (SW) to toggle the menu.
+mobileBtn.TouchTap:Connect(nc(function()
+    toggleMenu()
+end))
 
--- Мобильная toggle-кнопка
-if isMobile then
-    local mobileBtn = Instance.new("TextButton")
-    mobileBtn.Size = UDim2.new(0, 44, 0, 44)
-    mobileBtn.Position = UDim2.new(1, -54, 0, 10)
-    mobileBtn.BackgroundColor3 = C.Accent
-    mobileBtn.AutoButtonColor = false
-    mobileBtn.Text = ""
-    mobileBtn.Active = true
-    mobileBtn.ZIndex = 10
-    mobileBtn.Parent = screenGui
-    addCorner(mobileBtn, 22)
-    addStroke(mobileBtn, C.BorderHi, 1)
-
-    local mobileBtnIcon = Instance.new("TextLabel")
-    mobileBtnIcon.Size = UDim2.new(1, 0, 1, 0)
-    mobileBtnIcon.BackgroundTransparency = 1
-    mobileBtnIcon.Font = Enum.Font.GothamBold
-    mobileBtnIcon.Text = "SW"
-    mobileBtnIcon.TextSize = 16
-    mobileBtnIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
-    mobileBtnIcon.ZIndex = 11
-    mobileBtnIcon.Parent = mobileBtn
-
-    mobileBtn.MouseButton1Click:Connect(function() toggleMenu() end)
-
-    local mbDrag, mbStart, mbStartPos = false, nil, nil
-    mobileBtn.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch then
-            mbDrag = true
-            mbStart = input.Position
-            mbStartPos = mobileBtn.Position
-        end
-    end)
-    UserInputService.InputChanged:Connect(function(input)
-        if mbDrag and input.UserInputType == Enum.UserInputType.Touch then
-            local d = input.Position - mbStart
-            mobileBtn.Position = UDim2.new(
-                mbStartPos.X.Scale, mbStartPos.X.Offset + d.X,
-                mbStartPos.Y.Scale, mbStartPos.Y.Offset + d.Y
-            )
-        end
-    end)
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch then
-            mbDrag = false
-        end
-    end)
-end
-
--- Адаптация при изменении viewport (поворот экрана и т.д.)
-if camera and isMobile then
+-- ===== VIEWPORT RESIZE =====
+if camera then
     camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
         local newSize = camera.ViewportSize
         local scaleW = (newSize.X * 0.55) / BASE_W
@@ -2105,20 +1862,17 @@ if camera and isMobile then
     end)
 end
 
--- Периодически обновляем счётчик активных фич (на случай внешних правок)
-task.spawn(function()
+-- Периодически обновляем счётчик активных фич
+task.spawn(nc(function()
     while screenGui.Parent do
         task.wait(2)
         NS.RefreshFooterUI()
     end
-end)
+end))
 
-local loadMsg = ("v%s loaded — Delta Mobile. "):format(VERSION)
-    .. "Tap SW button to toggle menu."
+local loadMsg = ("v%s · %s. "):format(VERSION, executorName)
+    .. "SW pill / floating SW toggle the window. Delta Mobile touch-native."
 Notify("SkyWars", loadMsg)
 if not hasFS then
     Notify("SkyWars", "Note: executor lacks file I/O — config will not persist.")
-end
-if not IS_DELTA then
-    Notify("SkyWars", "Warning: script optimized for Delta Mobile.")
 end
