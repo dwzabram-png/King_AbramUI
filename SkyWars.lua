@@ -483,15 +483,6 @@ local function startAutoFarm()
         farmBodyPos.Parent   = clientHRP
     end
 
-    -- Disable Freefall so Humanoid doesn't apply extra gravity when the block breaks
-    pcall(function()
-        local hum = getHumanoid()
-        if hum then
-            hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
-            hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-        end
-    end)
-
     -- Защита от смерти: при получении урона восстанавливаем HP
     disconnect("autoFarmHealth")
     pcall(function()
@@ -522,8 +513,6 @@ local function startAutoFarm()
             pcall(function()
                 local hum = getHumanoid()
                 if hum then
-                    hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
-                    hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
                     disconnect("autoFarmHealth")
                     connections.autoFarmHealth = hum.HealthChanged:Connect(function(hp)
                         if State.AutoFarm and hp < hum.MaxHealth then
@@ -545,6 +534,8 @@ local function startAutoFarm()
                 if not ok then
                     warn("[SkyWars] farmStep:", err)
                     task.wait(0.5)
+                else
+                    task.wait() -- yield one frame to prevent busy loop between rounds
                 end
                 if not State.AutoFarm then break end
             end
@@ -569,14 +560,6 @@ local function stopAutoFarm()
         pcall(function() farmBodyPos:Destroy() end)
         farmBodyPos = nil
     end
-    -- Re-enable Freefall so normal gameplay gravity works again
-    pcall(function()
-        local hum = getHumanoid()
-        if hum then
-            hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
-            hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
-        end
-    end)
     if farmPlatform then
         pcall(function() farmPlatform:Destroy() end)
         farmPlatform = nil
