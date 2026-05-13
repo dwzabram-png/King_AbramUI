@@ -5,7 +5,7 @@
 
 repeat task.wait() until game:IsLoaded()
 
-local VERSION = "2.1.5"
+local VERSION = "3.0.0-delta"
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
@@ -14,6 +14,7 @@ local UserInputService  = game:GetService("UserInputService")
 local CoreGui           = game:GetService("CoreGui")
 local HttpService       = game:GetService("HttpService")
 local VirtualUser       = game:GetService("VirtualUser")
+local ContextActionService = game:GetService("ContextActionService")
 
 local localPlayer = Players.LocalPlayer
 
@@ -22,6 +23,25 @@ local hasFS  = type(writefile) == "function"
             and type(readfile)  == "function"
             and type(isfile)    == "function"
 local getHui = gethui
+
+-- ==================== DELTA MOBILE DETECTION ====================
+local IS_DELTA = false
+pcall(function()
+    local name = identifyexecutor()
+    IS_DELTA = name and name:lower():find("delta") ~= nil
+end)
+
+-- ==================== ANTI-DETECT: __namecall HOOK ====================
+pcall(function()
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        if not checkcaller() then
+            return oldNamecall(self, ...)
+        end
+        return oldNamecall(self, ...)
+    end))
+end)
 
 -- Единый неймспейс вместо разрозненных глобалов
 _G.AbramSky = _G.AbramSky or {}
@@ -53,12 +73,12 @@ updateCharacter()
 local charAddedConn = localPlayer.CharacterAdded:Connect(updateCharacter)
 
 -- Anti-AFK — Roblox kick'ает за 20 минут idle
-local idledConn = localPlayer.Idled:Connect(function()
+local idledConn = localPlayer.Idled:Connect(newcclosure(function()
     pcall(function()
         VirtualUser:CaptureController()
         VirtualUser:ClickButton2(Vector2.new())
     end)
-end)
+end))
 
 -- ==================== CONFIG ====================
 local DEFAULT_CONFIG = {
@@ -509,38 +529,33 @@ local function stopAutoFarm()
 end
 
 -- ==================== MOVEMENT FEATURES ====================
-local FlyKeys   = { W=false, A=false, S=false, D=false, Space=false, LeftShift=false }
-local BlinkKeys = { W=false, A=false, S=false, D=false }
+-- Touch-based movement state (replaces keyboard keys for Delta Mobile)
+local touchFlyUp   = false          -- set by up button
+local touchFlyDown = false          -- set by down button
 
-local function vectorFromKeys(keys, withVertical)
-    local d = Vector3.new(0, 0, 0)
-    if keys.W then d = d + Vector3.new(0, 0, -1) end
-    if keys.S then d = d + Vector3.new(0, 0,  1) end
-    if keys.A then d = d + Vector3.new(-1, 0, 0) end
-    if keys.D then d = d + Vector3.new( 1, 0, 0) end
+-- Forward declarations for mobile controls (created after screenGui)
+local movementJoystick, flyUpButton, flyDownButton
+local getJoystickDir    -- function returning Vector3
+
+local function showMoveControls(withVertical)
+    if movementJoystick then movementJoystick.Visible = true end
     if withVertical then
-        if keys.Space     then d = d + Vector3.new(0,  1, 0) end
-        if keys.LeftShift then d = d + Vector3.new(0, -1, 0) end
+        if flyUpButton then flyUpButton.Visible = true end
+        if flyDownButton then flyDownButton.Visible = true end
     end
-    return d
 end
 
 local function startFly()
     if connections.flyStep then return end
-    connections.flyBegin = UserInputService.InputBegan:Connect(function(input, gp)
-        if gp or not State.Fly then return end
-        if FlyKeys[input.KeyCode.Name] ~= nil then
-            FlyKeys[input.KeyCode.Name] = true
-        end
-    end)
-    connections.flyEnd = UserInputService.InputEnded:Connect(function(input)
-        if FlyKeys[input.KeyCode.Name] ~= nil then
-            FlyKeys[input.KeyCode.Name] = false
-        end
-    end)
+    showMoveControls(true)
+
     connections.flyStep = RunService.RenderStepped:Connect(function(dt)
         if not (State.Fly and clientHRP) then return end
-        local d = vectorFromKeys(FlyKeys, true)
+        local dir = getJoystickDir and getJoystickDir() or Vector3.zero
+        local vert = 0
+        if touchFlyUp   then vert = vert + 1 end
+        if touchFlyDown then vert = vert - 1 end
+        local d = dir + Vector3.new(0, vert, 0)
         if d.Magnitude > 0 then
             local cam = workspace.CurrentCamera
             if not cam then return end
@@ -551,10 +566,14 @@ local function startFly()
 end
 
 local function stopFly()
-    for k in pairs(FlyKeys) do FlyKeys[k] = false end
     disconnect("flyStep")
-    disconnect("flyBegin")
-    disconnect("flyEnd")
+    if flyUpButton then flyUpButton.Visible = false end
+    if flyDownButton then flyDownButton.Visible = false end
+    touchFlyUp = false
+    touchFlyDown = false
+    if not State.Blink then
+        if movementJoystick then movementJoystick.Visible = false end
+    end
 end
 
 local originalWalkSpeed
@@ -674,20 +693,11 @@ local function startBlink()
     blinkPart.CFrame       = clientHRP.CFrame
     blinkPart.Parent       = workspace
 
-    connections.blinkBegin = UserInputService.InputBegan:Connect(function(input, gp)
-        if gp or not State.Blink then return end
-        if BlinkKeys[input.KeyCode.Name] ~= nil then
-            BlinkKeys[input.KeyCode.Name] = true
-        end
-    end)
-    connections.blinkEnd = UserInputService.InputEnded:Connect(function(input)
-        if BlinkKeys[input.KeyCode.Name] ~= nil then
-            BlinkKeys[input.KeyCode.Name] = false
-        end
-    end)
+    showMoveControls(false)
+
     connections.blinkStep = RunService.RenderStepped:Connect(function(dt)
         if not (State.Blink and blinkPart) then return end
-        local d = vectorFromKeys(BlinkKeys, false)
+        local d = getJoystickDir and getJoystickDir() or Vector3.zero
         if d.Magnitude > 0 then
             local cam = workspace.CurrentCamera
             if not cam then return end
@@ -698,10 +708,10 @@ local function startBlink()
 end
 
 local function stopBlink()
-    for k in pairs(BlinkKeys) do BlinkKeys[k] = false end
     disconnect("blinkStep")
-    disconnect("blinkBegin")
-    disconnect("blinkEnd")
+    if not State.Fly then
+        if movementJoystick then movementJoystick.Visible = false end
+    end
     if blinkPart and clientHRP then
         pcall(function()
             clientHRP.Anchored = false
@@ -1606,12 +1616,12 @@ createToggle(pageMain, "Auto Clicker", "AutoClicker")
 createToggle(pageMain, "Auto Bow",     "AutoBow")
 
 createSection(pageMovement, "Movement")
-createToggle(pageMovement, "Fly (WASD + Space/Shift)", "Fly")
+createToggle(pageMovement, "Fly (Joystick + UP/DN)", "Fly")
 createToggle(pageMovement, "Speed",        "Speed")
 createToggle(pageMovement, "High Jump",    "HighJump")
 createToggle(pageMovement, "Fast Fall",    "FastFall")
 createToggle(pageMovement, "No Rotate",    "NoRotate")
-createToggle(pageMovement, "Blink (WASD marker)", "Blink")
+createToggle(pageMovement, "Blink (Joystick)", "Blink")
 createToggle(pageMovement, "TP Aura",      "TPaura")
 
 createSection(pageVisual, "Camera")
@@ -1707,6 +1717,7 @@ createReadOnlyRow(pageInfo, "Version",      VERSION)
 createReadOnlyRow(pageInfo, "Player",       localPlayer.Name)
 createReadOnlyRow(pageInfo, "Platform",     isMobile and "Mobile" or "PC")
 createReadOnlyRow(pageInfo, "FileSystem",   hasFS and "available" or "n/a")
+createReadOnlyRow(pageInfo, "Executor",     IS_DELTA and "Delta" or "?")
 createSection(pageInfo, "Tips")
 do
     local lbl = Instance.new("TextLabel")
@@ -1719,7 +1730,7 @@ do
     lbl.TextWrapped = true
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.TextYAlignment = Enum.TextYAlignment.Top
-    lbl.Text = "  · Auto Farm включает Noclip и Anti-Void автоматически.\n  · Карта обновляется между раундами — настраивай в Settings.\n  · Fly/Blink — WASD; Fly: Space/Shift ↑↓. Blink возвращает на маркер при выключении.\n  · Anti-Detect Jitter добавляет шум в Tween и позицию."
+    lbl.Text = "  · Auto Farm включает Noclip и Anti-Void автоматически.\n  · Карта обновляется между раундами — настраивай в Settings.\n  · Fly/Blink — джойстик слева; Fly: UP/DN кнопки справа.\n  · Blink возвращает на маркер при выключении.\n  · Anti-Detect Jitter + hookmetamethod anti-detect.\n  · Оптимизировано для Delta Mobile."
     lbl.Parent = pageInfo
     addCorner(lbl, 8)
     local pad = Instance.new("UIPadding", lbl)
@@ -1730,6 +1741,131 @@ end
 
 setActiveTab("Main")
 NS.RefreshFooterUI()
+
+-- ===== MOBILE TOUCH CONTROLS (Joystick + Fly buttons) =====
+do
+    local JOY_SIZE  = 120
+    local THUMB_SZ  = 48
+    local BTN_SZ    = 56
+
+    -- Movement joystick (bottom-left)
+    local jOuter = Instance.new("Frame")
+    jOuter.Name = "AS_MoveJoystick"
+    jOuter.Size = UDim2.new(0, JOY_SIZE, 0, JOY_SIZE)
+    jOuter.Position = UDim2.new(0, 80, 1, -80)
+    jOuter.AnchorPoint = Vector2.new(0.5, 0.5)
+    jOuter.BackgroundColor3 = C.Surface
+    jOuter.BackgroundTransparency = 0.5
+    jOuter.Visible = false
+    jOuter.Active = true
+    jOuter.Parent = screenGui
+    addCorner(jOuter, JOY_SIZE / 2)
+    addStroke(jOuter, C.BorderHi, 2)
+
+    local jThumb = Instance.new("Frame")
+    jThumb.Name = "Thumb"
+    jThumb.Size = UDim2.new(0, THUMB_SZ, 0, THUMB_SZ)
+    jThumb.Position = UDim2.new(0.5, 0, 0.5, 0)
+    jThumb.AnchorPoint = Vector2.new(0.5, 0.5)
+    jThumb.BackgroundColor3 = C.Accent
+    jThumb.BackgroundTransparency = 0.2
+    jThumb.Parent = jOuter
+    addCorner(jThumb, THUMB_SZ / 2)
+
+    local jDir = Vector3.zero
+
+    jOuter.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.Touch then return end
+        local function updateJoy()
+            local center = jOuter.AbsolutePosition + jOuter.AbsoluteSize / 2
+            local dx = input.Position.X - center.X
+            local dy = input.Position.Y - center.Y
+            local delta = Vector2.new(dx, dy)
+            local maxR = JOY_SIZE / 2 - THUMB_SZ / 4
+            if delta.Magnitude > maxR then delta = delta.Unit * maxR end
+            jThumb.Position = UDim2.new(0.5, delta.X, 0.5, delta.Y)
+            local norm = delta / maxR
+            jDir = Vector3.new(norm.X, 0, norm.Y)
+        end
+        updateJoy()
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                jThumb.Position = UDim2.new(0.5, 0, 0.5, 0)
+                jDir = Vector3.zero
+                return
+            end
+            updateJoy()
+        end)
+    end)
+
+    movementJoystick = jOuter
+    getJoystickDir = function() return jDir end
+
+    -- Fly Up button (bottom-right, higher)
+    local upBtn = Instance.new("TextButton")
+    upBtn.Name = "AS_FlyUp"
+    upBtn.Size = UDim2.new(0, BTN_SZ, 0, BTN_SZ)
+    upBtn.Position = UDim2.new(1, -50, 1, -140)
+    upBtn.AnchorPoint = Vector2.new(0.5, 0.5)
+    upBtn.BackgroundColor3 = C.Surface
+    upBtn.BackgroundTransparency = 0.4
+    upBtn.AutoButtonColor = false
+    upBtn.Font = Enum.Font.GothamBold
+    upBtn.Text = "UP"
+    upBtn.TextSize = 16
+    upBtn.TextColor3 = C.Text
+    upBtn.Visible = false
+    upBtn.Active = true
+    upBtn.Parent = screenGui
+    addCorner(upBtn, BTN_SZ / 2)
+    addStroke(upBtn, C.BorderHi, 1)
+
+    upBtn.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.Touch then return end
+        touchFlyUp = true
+        tw(upBtn, { BackgroundTransparency = 0.1 })
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                touchFlyUp = false
+                tw(upBtn, { BackgroundTransparency = 0.4 })
+            end
+        end)
+    end)
+
+    -- Fly Down button (bottom-right, lower)
+    local downBtn = Instance.new("TextButton")
+    downBtn.Name = "AS_FlyDown"
+    downBtn.Size = UDim2.new(0, BTN_SZ, 0, BTN_SZ)
+    downBtn.Position = UDim2.new(1, -50, 1, -75)
+    downBtn.AnchorPoint = Vector2.new(0.5, 0.5)
+    downBtn.BackgroundColor3 = C.Surface
+    downBtn.BackgroundTransparency = 0.4
+    downBtn.AutoButtonColor = false
+    downBtn.Font = Enum.Font.GothamBold
+    downBtn.Text = "DN"
+    downBtn.TextSize = 16
+    downBtn.TextColor3 = C.Text
+    downBtn.Visible = false
+    downBtn.Active = true
+    downBtn.Parent = screenGui
+    addCorner(downBtn, BTN_SZ / 2)
+    addStroke(downBtn, C.BorderHi, 1)
+
+    downBtn.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.Touch then return end
+        touchFlyDown = true
+        tw(downBtn, { BackgroundTransparency = 0.1 })
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                touchFlyDown = false
+                tw(downBtn, { BackgroundTransparency = 0.4 })
+            end
+        end)
+    end)
+
+    flyUpButton = upBtn
+    flyDownButton = downBtn
+end
 
 -- ===== DRAG & ALT HIDE =====
 local draggingMain = false
@@ -1835,12 +1971,8 @@ pill.MouseButton1Click:Connect(function()
     if not pMoved then toggleMenu() end
 end)
 
-UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if input.KeyCode == Enum.KeyCode.LeftAlt or input.KeyCode == Enum.KeyCode.RightAlt then
-        toggleMenu()
-    end
-end)
+-- Alt toggle removed: Delta Mobile — all input must be touch-based.
+-- Use the floating pill or mobile button (SW) to toggle the menu.
 
 -- Мобильная toggle-кнопка
 if isMobile then
@@ -1913,9 +2045,12 @@ task.spawn(function()
     end
 end)
 
-local loadMsg = ("v%s loaded. "):format(VERSION)
-    .. (isMobile and "Tap SW button to toggle menu." or "Press ALT or click SW pill.")
+local loadMsg = ("v%s loaded — Delta Mobile. "):format(VERSION)
+    .. "Tap SW button to toggle menu."
 Notify("SkyWars", loadMsg)
 if not hasFS then
     Notify("SkyWars", "Note: executor lacks file I/O — config will not persist.")
+end
+if not IS_DELTA then
+    Notify("SkyWars", "Warning: script optimized for Delta Mobile.")
 end
