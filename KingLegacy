@@ -1,241 +1,169 @@
--- [[ KING LEGACY: AWAKENED DUNGEON FARM ]] --
--- [[ Адаптировано под Delta Mobile | Автор: Fox ]] --
+local P = game:GetService("Players")
+local R = game:GetService("ReplicatedStorage")
+local RS = game:GetService("RunService")
 
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
+local L = P.LocalPlayer
+local Ch = R:WaitForChild("Chest")
+local Re = Ch:WaitForChild("Remotes")
+local Fu = Re:WaitForChild("Functions")
+local Ev = Re:WaitForChild("Events")
 
-local LocalPlayer = Players.LocalPlayer
-local Chest = ReplicatedStorage:WaitForChild("Chest")
-local Remotes = Chest.Remotes
-local Functions = Remotes.Functions
-local Events = Remotes.Events
+local SA = Fu:WaitForChild("SkillAction")
+local SD = Fu:WaitForChild("SelectDungeon")
+local AE = Ev:WaitForChild("Armament")
+local KE = Fu:WaitForChild("KenEvent")
 
--- Ремоуты
-local SkillAction = Functions.SkillAction
-local SelectDungeon = Functions.SelectDungeon
-local ArmamentEvent = Events.Armament
-local KenEvent = Functions.KenEvent
+local auto = true
+local lastF = ""
+local startCF = CFrame.new(10959.46, 141.89, 1252.01)
+local tRoom = false
+local lHeal = 0
+local lSkill = 0
 
--- Настройки
-local autoDungeon = true
-local startCFrame = CFrame.new(10959.46, 141.89, 1252.01)
-local lastFloor = ""
-local lastHealTime = 0
-local lastSkillTime = 0
-local togglingRoom = false
-
--- Проверка кулдауна расы (через GUI)
-local function isRaceOnCooldown()
-    local gui = LocalPlayer.PlayerGui:FindFirstChild("MainGui")
-    if gui then
-        local raceFrame = gui.BaseFrame.Frame:FindFirstChild("RaceFrame")
-        if raceFrame and raceFrame:FindFirstChild("Cooldown") then
-            return raceFrame.Cooldown.Visible
-        end
+-- Проверка КД расы
+local function isRaceCD()
+    local g = L.PlayerGui:FindFirstChild("MainGui")
+    if g then
+        local r = g.BaseFrame.Frame:FindFirstChild("RaceFrame")
+        if r and r:FindFirstChild("Cooldown") then return r.Cooldown.Visible end
     end
     return false
 end
 
--- Получение количества уклонений (Dodges)
-local function getDodgeCount()
-    local dodges = 0
-    pcall(function()
-        -- Пробуем вытащить из папки Haki в персонаже
-        dodges = LocalPlayer.Character.Haki.Observation.Value
-    end)
-    if dodges == 0 then
+-- Доджи для KenV2
+local function getD()
+    local d = 0
+    pcall(function() d = L.Character.Haki.Observation.Value end)
+    if d == 0 then pcall(function() d = L.Haki.Observation.Value end) end
+    return d
+end
+
+-- Менеджер KenV2 (по твоим условиям)
+local function manageKen(hp)
+    local d = getD()
+    local active = L.Character and L.Character:FindFirstChild("KenHaki")
+    if hp <= 15000 and isRaceCD() and d >= 5 then
+        if not active then KE:InvokeServer() end
+    elseif active and d < 5 then
+        KE:InvokeServer()
+    end
+end
+
+-- Хил
+local function heal()
+    if tick() - lHeal < 60 then return end
+    local h = math.huge
+    local g = L.PlayerGui:FindFirstChild("MainGui")
+    if g then
         pcall(function()
-            -- Запасной вариант из профиля игрока
-            dodges = LocalPlayer.Haki.Observation.Value
+            local t = g.BaseFrame.Frame.HealthFrame.HealthText.Text
+            h = tonumber(t:split("/")[1]:gsub("%D", "")) or h
         end)
     end
-    return dodges
-end
-
--- Управление KenV2 (Observation Haki)
-local function manageObservation(currentHP)
-    local dCount = getDodgeCount()
-    local isKenActive = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("KenHaki")
-    
-    -- Условие: HP <= 15к И Раса в КД И Доджей >= 5 -> ВКЛЮЧАЕМ
-    if currentHP <= 15000 and isRaceOnCooldown() and dCount >= 5 then
-        if not isKenActive then
-            KenEvent:InvokeServer()
-        end
-    -- Если Хаки включена, но доджей стало < 5 -> ВЫКЛЮЧАЕМ для регена
-    elseif isKenActive and dCount < 5 then
-        KenEvent:InvokeServer()
+    if h == math.huge and L.Character and L.Character:FindFirstChild("Humanoid") then h = L.Character.Humanoid.Health end
+    manageKen(h)
+    if h <= 15000 then
+        task.spawn(function() pcall(function() SA:InvokeServer("RC") end) end)
+        lHeal = tick()
     end
 end
 
--- Авто-хил RC
-local function autoHeal()
-    if tick() - lastHealTime < 60 then return end
-    
-    local hp = math.huge
-    local gui = LocalPlayer.PlayerGui:FindFirstChild("MainGui")
-    
-    if gui then
-        pcall(function()
-            local text = gui.BaseFrame.Frame.HealthFrame.HealthText.Text
-            hp = tonumber(text:split("/")[1]:gsub("%D", "")) or hp
-        end)
-    end
-    
-    if hp == math.huge and LocalPlayer.Character:FindFirstChild("Humanoid") then
-        hp = LocalPlayer.Character.Humanoid.Health
-    end
-
-    -- Передаем HP в менеджер KenV2
-    manageObservation(hp)
-
-    if hp <= 15000 then
-        task.spawn(function()
-            pcall(function() SkillAction:InvokeServer("RC") end)
-        end)
-        lastHealTime = tick()
-    end
+-- Проверка комнаты (старый способ)
+local function isR()
+    return workspace:FindFirstChild("KRoom"..L.Name) or workspace:FindFirstChild("OpeRoom"..L.Name) ~= nil
 end
 
--- Проверка активной зоны KROOM (Ope V2)
-local function isRoomActive()
-    local name = LocalPlayer.Name
-    return workspace:FindFirstChild("KRoom" .. name) or workspace:FindFirstChild("OpeRoom" .. name) ~= nil
-end
-
--- Проверка нахождения игрока в зоне
-local function isPlayerInRoom()
-    local room = workspace:FindFirstChild("KRoom" .. LocalPlayer.Name) or workspace:FindFirstChild("OpeRoom" .. LocalPlayer.Name)
-    if not room or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then return false end
-    
-    local dist = (room.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
-    local radius = (math.max(room.Size.X, room.Size.Z) / 2) * 0.95
-    return dist <= radius
-end
-
--- Открытие KROOM (V2)
-local function toggleKRoom(targetCF)
-    if togglingRoom then return end
-    togglingRoom = true
-    
-    local pos = CFrame.new(targetCF.Position)
+-- Каст (старый способ через Down/Up)
+local function fire(name, cf)
     task.spawn(function()
-        pcall(function() SkillAction:InvokeServer("DF_OpOp_Awake_Z", {["Type"] = "Down", ["MouseHit"] = pos}) end)
-        pcall(function() SkillAction:InvokeServer("DF_OpOp_Awake_Z", {["Type"] = "Up", ["MouseHit"] = pos}) end)
+        pcall(function() SA:InvokeServer(name, {["Type"] = "Down", ["MouseHit"] = cf}) end)
+        pcall(function() SA:InvokeServer(name, {["Type"] = "Up", ["MouseHit"] = cf}) end)
+    end)
+end
+
+-- Моментальная комната
+local function togR(cf)
+    if tRoom then return end
+    tRoom = true
+    local c = CFrame.new(cf.Position)
+    task.spawn(function()
+        pcall(function() SA:InvokeServer("DF_OpOp_Z", {["Type"] = "Down", ["MouseHit"] = c}) end)
+        pcall(function() SA:InvokeServer("DF_OpOp_Z", {["Type"] = "Up", ["MouseHit"] = c}) end)
         task.wait(1)
-        togglingRoom = false
+        tRoom = false
     end)
 end
 
--- Использование скилла (Down/Up пакеты)
-local function useSkill(name, targetCF)
-    task.spawn(function()
-        pcall(function() SkillAction:InvokeServer(name, {["Type"] = "Down", ["MouseHit"] = targetCF}) end)
-        pcall(function() SkillAction:InvokeServer(name, {["Type"] = "Up", ["MouseHit"] = targetCF}) end)
-    end)
-end
-
--- Поиск валидной цели
-local function getTarget()
-    local folder = workspace:FindFirstChild("MOB")
-    if not folder then return nil end
-    for _, mob in pairs(folder:GetChildren()) do
-        if mob:FindFirstChild("Humanoid") and mob.Humanoid.Health > 0 and mob:FindFirstChild("HumanoidRootPart") then
-            return mob
-        end
-    end
-    return nil
-end
-
--- Заморозка физики (Стабильный полет)
-RunService.Heartbeat:Connect(function()
-    if autoDungeon and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-        local hrp = LocalPlayer.Character.HumanoidRootPart
+-- Жесткий флай (Анти-Дергание)
+RS.Heartbeat:Connect(function()
+    if auto and L.Character and L.Character:FindFirstChild("HumanoidRootPart") then
+        local hrp = L.Character.HumanoidRootPart
         hrp.AssemblyLinearVelocity = Vector3.zero
         hrp.AssemblyAngularVelocity = Vector3.zero
-        
-        if not hrp:FindFirstChild("DeltaFly") then
-            local bv = Instance.new("BodyVelocity")
-            bv.Name = "DeltaFly"
-            bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-            bv.Velocity = Vector3.zero
-            bv.Parent = hrp
+        if not hrp:FindFirstChild("DH") then
+            local b = Instance.new("BodyVelocity")
+            b.Name = "DH"; b.MaxForce = Vector3.new(math.huge, math.huge, math.huge); b.Velocity = Vector3.zero; b.Parent = hrp
         end
     end
 end)
 
--- Цикл рестарта данжа
+-- Рестарт данжа
 task.spawn(function()
-    while autoDungeon do
+    while auto do
         task.wait(2)
-        -- Постоянно врубаем волю вооружения
-        pcall(function() ArmamentEvent:FireServer() end)
-        
-        local resultGui = LocalPlayer.PlayerGui:FindFirstChild("DungeonResult")
-        local dungeonUI = LocalPlayer.PlayerGui:FindFirstChild("DungeonUI")
-        
-        -- Если вылез результат или пропал UI этажей (и мы не на спавне)
-        if (resultGui and resultGui.Enabled) or (not dungeonUI and (LocalPlayer.Character.HumanoidRootPart.Position - startCFrame.Position).Magnitude > 1000) then
-            print("[SYSTEM] Данж завершен. Рестарт...")
-            LocalPlayer.Character.HumanoidRootPart.CFrame = startCFrame
+        pcall(function() AE:FireServer() end)
+        local res = L.PlayerGui:FindFirstChild("DungeonResult")
+        if (res and res.Enabled) or (not L.PlayerGui:FindFirstChild("DungeonUI") and (L.Character.HumanoidRootPart.Position - startCF.Position).Magnitude > 1000) then
+            L.Character.HumanoidRootPart.CFrame = startCF
             task.wait(2)
-            pcall(function() SelectDungeon:InvokeServer("Hard") end)
+            pcall(function() SD:InvokeServer("Hard") end)
             task.wait(5)
         end
     end
 end)
 
--- ОСНОВНОЙ ЦИКЛ ФАРМА
+-- Цикл атаки
 task.spawn(function()
-    print("[SYSTEM] Автофарм запущен. Режим: Ope V2 + KenV2 Logic.")
-    while autoDungeon do
+    while auto do
         task.wait(0.05)
-        
-        local ok, err = pcall(function()
-            local char = LocalPlayer.Character
+        pcall(function()
+            local char = L.Character
             if not char or not char:FindFirstChild("HumanoidRootPart") then return end
             local hrp = char.HumanoidRootPart
+            heal()
             
-            autoHeal()
-            
-            if LocalPlayer.PlayerGui:FindFirstChild("DungeonUI") then
-                local mob = getTarget()
+            if L.PlayerGui:FindFirstChild("DungeonUI") then
+                local mob = nil
+                local f = workspace:FindFirstChild("MOB")
+                if f then
+                    for _, m in pairs(f:GetChildren()) do
+                        if m:FindFirstChild("Humanoid") and m.Humanoid.Health > 0 then mob = m; break end
+                    end
+                end
+
                 if mob then
-                    local mobHRP = mob.HumanoidRootPart.CFrame
-                    local isBoss = mob.Humanoid.MaxHealth > 1000000
+                    local mH = mob.HumanoidRootPart.CFrame
+                    local isB = mob.Humanoid.MaxHealth > 1000000
                     
-                    -- Позиция над мобом (11 для боссов, 14 для обычных)
-                    hrp.CFrame = mobHRP * CFrame.new(0, isBoss and 11 or 14, 0) * CFrame.Angles(math.rad(-90), 0, 0)
+                    hrp.CFrame = mH * CFrame.new(0, isB and 11 or 15, 0) * CFrame.Angles(math.rad(-90), 0, 0)
                     
-                    if not isRoomActive() then
-                        toggleKRoom(mobHRP)
-                        task.wait(1.2)
-                    elseif isRoomActive() and not isPlayerInRoom() then
-                        -- Если зона далеко, переоткрываем её
-                        toggleKRoom(hrp.CFrame)
-                        task.wait(0.5)
-                        toggleKRoom(hrp.CFrame)
+                    if not isR() then
+                        togR(mH)
+                        task.wait(1)
                     else
-                        -- Атака M1 (Sword)
-                        pcall(function()
-                            SkillAction:InvokeServer("SW_Kioru V2_M1", {["MouseHit"] = mobHRP})
-                        end)
+                        -- M1 всегда
+                        pcall(function() SA:InvokeServer("SW_Kioru V2_M1", {["MouseHit"] = mH}) end)
                         
-                        -- Цикл скиллов
-                        local cd = isBoss and 0.4 or 0.7
-                        if tick() - lastSkillTime >= cd then
-                            -- Скиллы меча
-                            useSkill("SW_Kioru V2_Z", mobHRP)
-                            useSkill("SW_Kioru V2_X", mobHRP)
-                            
-                            -- Пробужденные скиллы Ope V2
-                            if isRoomActive() then
-                                useSkill("DF_OpOp_Awake_X", mobHRP)
-                                useSkill("DF_OpOp_Awake_C", mobHRP)
-                                useSkill("DF_OpOp_Awake_V", mobHRP)
+                        -- Скиллы (СТАРЫЙ СПОСОБ НАЗВАНИЙ)
+                        if tick() - lSkill >= (isB and 0.5 or 1) then
+                            fire("SW_Kioru V2_Z", mH)
+                            fire("SW_Kioru V2_X", mH)
+                            if isR() then
+                                fire("DF_OpOp_X", mH)
+                                fire("DF_OpOp_C", mH)
+                                fire("DF_OpOp_V", mH)
                             end
-                            lastSkillTime = tick()
+                            lSkill = tick()
                         end
                     end
                 end
@@ -244,10 +172,6 @@ task.spawn(function()
     end
 end)
 
--- Анти-АФК
+-- AFK
 local GC = getconnections or get_signal_cons
-if GC then
-    for _, v in pairs(GC(LocalPlayer.Idled)) do
-        if v["Disable"] then v:Disable() elseif v["Disconnect"] then v:Disconnect() end
-    end
-end
+if GC then for _, v in pairs(GC(L.Idled)) do if v["Disable"] then v:Disable() elseif v["Disconnect"] then v:Disconnect() end end end
