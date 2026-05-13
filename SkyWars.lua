@@ -31,16 +31,27 @@ pcall(function()
     IS_DELTA = name and name:lower():find("delta") ~= nil
 end)
 
--- ==================== ANTI-DETECT: __namecall HOOK ====================
+-- ==================== ANTI-DETECT + ANTI-KICK: __namecall HOOK ====================
 pcall(function()
-    local oldNamecall
-    oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+    local mt = getrawmetatable(game)
+    local oldNamecall = mt.__namecall
+    setreadonly(mt, false)
+    mt.__namecall = newcclosure(function(self, ...)
         local method = getnamecallmethod()
-        if not checkcaller() then
-            return oldNamecall(self, ...)
+        local args = {...}
+        -- Block any server-side kick attempts
+        if not checkcaller() and (method == "Kick" or method == "kick") then
+            return nil
+        end
+        -- Hide our RollService calls from other scripts
+        if method == "InvokeServer" and tostring(self) == "RemoteFunction" and args[1] == "requestRoll" then
+            if checkcaller() then
+                return oldNamecall(self, ...)
+            end
         end
         return oldNamecall(self, ...)
-    end))
+    end)
+    setreadonly(mt, true)
 end)
 
 -- Единый неймспейс вместо разрозненных глобалов
@@ -165,6 +176,7 @@ local State = {
     -- Combat
     AutoClicker = false,
     AutoBow     = false,
+    AutoRoll    = false,
 
     -- Visual
     FOV          = false,
@@ -810,6 +822,35 @@ local function stopTPaura()
     disconnect("tpauraStep")
 end
 
+-- ==================== AUTO-ROLL ====================
+local function findRollRemote()
+    for _, svc in ipairs(game:GetDescendants()) do
+        if svc.Name == "RollService" then
+            local rf = svc:FindFirstChild("RemoteFunction")
+            if rf and rf:IsA("RemoteFunction") then return rf end
+        end
+    end
+    return nil
+end
+
+local function startAutoRoll()
+    if activeFeatures.AutoRoll then return end
+    activeFeatures.AutoRoll = task.spawn(newcclosure(function()
+        while State.AutoRoll do
+            local ok, rf = pcall(findRollRemote)
+            if ok and rf then
+                pcall(function() rf:InvokeServer("requestRoll") end)
+            end
+            task.wait(0.01)
+        end
+        activeFeatures.AutoRoll = nil
+    end))
+end
+
+local function stopAutoRoll()
+    activeFeatures.AutoRoll = nil
+end
+
 -- ==================== COMBAT FEATURES ====================
 local function startAutoClicker()
     if activeFeatures.AutoClicker then return end
@@ -1081,6 +1122,7 @@ local FEATURES = {
     -- Combat
     AutoClicker  = { onStart = startAutoClicker, onStop = stopAutoClicker },
     AutoBow      = { onStart = startAutoBow,     onStop = stopAutoBow     },
+    AutoRoll     = { onStart = startAutoRoll,    onStop = stopAutoRoll    },
 
     -- Visual
     FOV          = { onStart = startFOV,         onStop = stopFOV         },
@@ -1657,6 +1699,7 @@ end
 -- ===== BUILD PAGES =====
 createSection(pageMain, "Automation")
 createToggle(pageMain, "Auto Farm", "AutoFarm")
+createToggle(pageMain, "Auto Roll", "AutoRoll")
 createToggle(pageMain, "Noclip",    "Noclip")
 createToggle(pageMain, "Anti-Void Platform", "AntiVoid")
 
@@ -1779,7 +1822,7 @@ do
     lbl.TextWrapped = true
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.TextYAlignment = Enum.TextYAlignment.Top
-    lbl.Text = "  · Auto Farm включает Noclip и Anti-Void автоматически.\n  · Карта обновляется между раундами — настраивай в Settings.\n  · Fly/Blink — джойстик слева; Fly: UP/DN кнопки справа.\n  · Blink возвращает на маркер при выключении.\n  · Anti-Detect Jitter + hookmetamethod anti-detect.\n  · Оптимизировано для Delta Mobile."
+    lbl.Text = "  · Auto Farm включает Noclip и Anti-Void автоматически.\n  · Auto Roll — быстрый ролл через RollService (0.01s).\n  · Карта обновляется между раундами — настраивай в Settings.\n  · Fly/Blink — джойстик слева; Fly: UP/DN кнопки справа.\n  · Blink возвращает на маркер при выключении.\n  · Anti-Kick + Anti-Detect через getrawmetatable.\n  · AS MENU кнопка (ContextActionService) — сверху.\n  · Оптимизировано для Delta Mobile."
     lbl.Parent = pageInfo
     addCorner(lbl, 8)
     local pad = Instance.new("UIPadding", lbl)
@@ -2020,10 +2063,21 @@ pill.MouseButton1Click:Connect(function()
     if not pMoved then toggleMenu() end
 end)
 
--- Alt toggle removed: Delta Mobile — all input must be touch-based.
--- Use the floating pill or mobile button (SW) to toggle the menu.
+-- ContextActionService toggle — works on mobile without KeyCode conflicts
+do
+    local CAS = game:GetService("ContextActionService")
+    local function handleASToggle(_actionName, inputState, _inputObject)
+        if inputState == Enum.UserInputState.Begin then
+            toggleMenu()
+            Notify("Menu", hidden and "Hidden" or "Opened")
+        end
+    end
+    CAS:BindAction("AS_Toggle", handleASToggle, true)
+    CAS:SetPosition("AS_Toggle", UDim2.new(0.5, -100, 0, 10))
+    CAS:SetTitle("AS_Toggle", "AS MENU")
+end
 
--- Мобильная toggle-кнопка
+-- Мобильная toggle-кнопка (дополнительная)
 if isMobile then
     local mobileBtn = Instance.new("TextButton")
     mobileBtn.Size = UDim2.new(0, 44, 0, 44)
