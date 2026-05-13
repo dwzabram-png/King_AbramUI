@@ -444,11 +444,32 @@ end
 -- ==================== FEATURE LIFECYCLE ====================
 local farmPlatform  -- phantom platform Part, перемещается на каждый блок
 
+local function applyFarmAntiGravity(on)
+    if not clientHRP then return end
+    pcall(function()
+        if on then
+            local bv = clientHRP:FindFirstChild("AS_FarmBV")
+            if not bv then
+                bv = Instance.new("BodyVelocity")
+                bv.Name = "AS_FarmBV"
+                bv.Velocity = Vector3.zero
+                bv.MaxForce = Vector3.new(0, math.huge, 0)
+                bv.Parent = clientHRP
+            end
+        else
+            local bv = clientHRP:FindFirstChild("AS_FarmBV")
+            if bv then bv:Destroy() end
+        end
+    end)
+end
+
 local function startAutoFarm()
     if activeFeatures.AutoFarm then return end
     ensureAntiVoid()
     startNoclip()
     refreshMap()
+
+    applyFarmAntiGravity(true)
 
     -- Создаём platform Part для позиционирования на блоке
     if not farmPlatform or not farmPlatform.Parent then
@@ -478,6 +499,7 @@ local function startAutoFarm()
     connections.autoFarmRespawn = localPlayer.CharacterAdded:Connect(function()
         task.wait(0.5)
         if State.AutoFarm then
+            applyFarmAntiGravity(true)
             pcall(function()
                 local hum = getHumanoid()
                 if hum then
@@ -522,6 +544,7 @@ local function stopAutoFarm()
     end
     disconnect("autoFarmRespawn")
     disconnect("autoFarmHealth")
+    applyFarmAntiGravity(false)
     if farmPlatform then
         pcall(function() farmPlatform:Destroy() end)
         farmPlatform = nil
