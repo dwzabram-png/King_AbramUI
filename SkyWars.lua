@@ -83,7 +83,7 @@ end))
 -- ==================== CONFIG ====================
 local DEFAULT_CONFIG = {
     FarmRadius        = 105,    -- студы
-    TweenSpeed        = 200,    -- студов в секунду (was 50)
+    TweenSpeed        = 80,     -- студов в секунду (safe for server anti-cheat)
     RescanInterval    = 2,      -- сек — период обновления mapFolder (was 5)
     AutoEquipAxe      = true,
     AntiVoidEnabled   = true,
@@ -142,7 +142,7 @@ if Config.AutoFarmHover == 3 then
 end
 
 -- v3.0.0 migration: bump old slow defaults to new fast ones
-if Config.TweenSpeed == 50 then Config.TweenSpeed = 200 end
+if Config.TweenSpeed == 50 or Config.TweenSpeed == 200 then Config.TweenSpeed = 80 end
 if Config.AutoFarmHoldMax == 2 then Config.AutoFarmHoldMax = 1.2 end
 if Config.RescanInterval == 5 then Config.RescanInterval = 2 end
 saveConfig()
@@ -365,8 +365,8 @@ end
 -- Период повторных ударов: 150мс — агрессивнее дефолта, но ниже spam-detect порога.
 local AUTO_FARM_HOLD_TICK = 0.15
 
--- Порог мгновенного TP: блоки ближе этой дистанции — без tween, сразу CFrame
-local INSTANT_TP_DIST = 15
+-- Порог мгновенного TP: только для очень близких блоков
+local INSTANT_TP_DIST = 6
 
 local function pickNearestBlock()
     if not (oresFolder and clientHRP) then return nil end
@@ -401,6 +401,15 @@ end
 
 local function farmStep()
     if not isCharacterAlive() then return end
+
+    -- Защита от смерти: восстанавливаем HP если сервер наносит урон
+    pcall(function()
+        local hum = getHumanoid()
+        if hum and hum.Health < hum.MaxHealth then
+            hum.Health = hum.MaxHealth
+        end
+    end)
+
     local axe = equipAxe()
     if not axe then return end
 
@@ -425,11 +434,9 @@ local function farmStep()
     local moveDist  = (clientHRP.Position - targetPos).Magnitude
 
     if moveDist < INSTANT_TP_DIST then
-        -- Мгновенный TP для близких блоков — без tween overhead
         if clientHRP then clientHRP.CFrame = targetCF end
     else
-        -- Tween для дальних блоков
-        local tweenTime = math.max(moveDist / speed * timeScale, 0.05)
+        local tweenTime = math.max(moveDist / speed * timeScale, 0.1)
         if activeTween then
             pcall(function() activeTween:Cancel() end)
             activeTween = nil
@@ -447,18 +454,12 @@ local function farmStep()
     if not (block and block.Parent and State.AutoFarm) then return end
     if clientHRP then clientHRP.CFrame = targetCF end
 
-    -- Минимальная пауза для репликации CFrame на сервер
-    task.wait(0.03)
+    -- Пауза для репликации CFrame на сервер
+    task.wait(0.05)
     if not (block and block.Parent and State.AutoFarm) then return end
 
-    -- Burst fire: 2 быстрых удара сразу при контакте с блоком
     pcall(function() axe:Activate() end)
     pcall(function() remote:FireServer(block) end)
-    if block.Parent and State.AutoFarm then
-        task.wait(0.08)
-        pcall(function() axe:Activate() end)
-        pcall(function() remote:FireServer(block) end)
-    end
 
     -- Повторные удары на ритме Tool.Activated пока блок не разрушен или таймаут.
     local maxHold = math.max(Config.AutoFarmHoldMax, 0.3)
@@ -512,11 +513,37 @@ local function startAutoFarm()
 
     applyAutoFarmAnchor(true)
 
+    -- Защита от смерти: при получении урона восстанавливаем HP
+    disconnect("autoFarmHealth")
+    pcall(function()
+        local hum = getHumanoid()
+        if hum then
+            connections.autoFarmHealth = hum.HealthChanged:Connect(function(hp)
+                if State.AutoFarm and hp < hum.MaxHealth then
+                    pcall(function() hum.Health = hum.MaxHealth end)
+                end
+            end)
+        end
+    end)
+
     -- После Respawn'а clientHRP обновляется — пере-якорим, если AutoFarm всё ещё on
     disconnect("autoFarmRespawn")
     connections.autoFarmRespawn = localPlayer.CharacterAdded:Connect(function()
         task.wait(0.5)
-        if State.AutoFarm then applyAutoFarmAnchor(true) end
+        if State.AutoFarm then
+            applyAutoFarmAnchor(true)
+            pcall(function()
+                local hum = getHumanoid()
+                if hum then
+                    disconnect("autoFarmHealth")
+                    connections.autoFarmHealth = hum.HealthChanged:Connect(function(hp)
+                        if State.AutoFarm and hp < hum.MaxHealth then
+                            pcall(function() hum.Health = hum.MaxHealth end)
+                        end
+                    end)
+                end
+            end)
+        end
     end)
 
     activeFeatures.AutoFarm = task.spawn(function()
@@ -554,6 +581,7 @@ local function stopAutoFarm()
         activeTween = nil
     end
     disconnect("autoFarmRespawn")
+    disconnect("autoFarmHealth")
     applyAutoFarmAnchor(false)
     if not State.Noclip then stopNoclip() end
 end
