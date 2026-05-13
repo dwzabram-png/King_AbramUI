@@ -1,0 +1,21 @@
+{
+  "name": "king-abramui-bridge-server",
+  "version": "1.0.0",
+  "description": "Live bridge server between Node.js workspace and Delta Mobile executor for Roblox",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "tunnel": "node tunnel.js",
+    "dev": "node index.js & node tunnel.js",
+    "lint": "echo 'No linter configured'"
+  },
+  "keywords": ["roblox", "delta", "executor", "bridge", "luau", "mobile", "unc"],
+  "author": "King AbramUI",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "localtunnel": "^2.0.2",
+    "uuid": "^14.0.0"
+  }
+}
