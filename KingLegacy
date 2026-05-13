@@ -84,9 +84,19 @@ local function toggleRoom(targetCFrame)
     togglingRoom = true
     local cleanCFrame = CFrame.new(targetCFrame.Position)
     task.spawn(function()
-        SkillAction:InvokeServer("DF_OpOp_Z", { ["Type"] = "Down", ["MouseHit"] = cleanCFrame })
-        task.wait(0.2)
-        SkillAction:InvokeServer("DF_OpOp_Z", { ["Type"] = "Up", ["MouseHit"] = cleanCFrame })
+        local ok, err = pcall(function()
+            SkillAction:InvokeServer("DF_OpOp_Z", { ["Type"] = "Down", ["MouseHit"] = cleanCFrame })
+        end)
+        if not ok then
+            warn("toggleRoom Down error: " .. tostring(err))
+        end
+        task.wait(0.5)
+        local ok2, err2 = pcall(function()
+            SkillAction:InvokeServer("DF_OpOp_Z", { ["Type"] = "Up", ["MouseHit"] = cleanCFrame })
+        end)
+        if not ok2 then
+            warn("toggleRoom Up error: " .. tostring(err2))
+        end
         task.wait(0.5)
         togglingRoom = false
     end)
