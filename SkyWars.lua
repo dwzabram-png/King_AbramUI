@@ -482,11 +482,26 @@ local function farmStep()
 end
 
 -- ==================== FEATURE LIFECYCLE ====================
--- Якорим HRP на время AutoFarm — это убирает гравитацию между
--- tween'ами. Без этого персонаж скачет вверх/вниз в колонне блоков.
+-- BodyVelocity вместо Anchored: держит HRP на месте без гравитации,
+-- но НЕ блокирует репликацию CFrame на сервер. Anchored=true ломал
+-- репликацию — сервер видел игрока на старой позиции (ghost fly).
 local function applyAutoFarmAnchor(state)
     if not clientHRP then return end
-    pcall(function() clientHRP.Anchored = state end)
+    pcall(function()
+        if state then
+            local bv = clientHRP:FindFirstChild("AS_FarmBV")
+            if not bv then
+                bv = Instance.new("BodyVelocity")
+                bv.Name = "AS_FarmBV"
+                bv.Velocity = Vector3.zero
+                bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+                bv.Parent = clientHRP
+            end
+        else
+            local bv = clientHRP:FindFirstChild("AS_FarmBV")
+            if bv then bv:Destroy() end
+        end
+    end)
 end
 
 local function startAutoFarm()
@@ -695,7 +710,16 @@ local function startBlink()
         return
     end
     if connections.blinkStep then return end
-    pcall(function() clientHRP.Anchored = true end)
+    pcall(function()
+        local bv = clientHRP:FindFirstChild("AS_BlinkBV")
+        if not bv then
+            bv = Instance.new("BodyVelocity")
+            bv.Name = "AS_BlinkBV"
+            bv.Velocity = Vector3.zero
+            bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+            bv.Parent = clientHRP
+        end
+    end)
 
     blinkPart = Instance.new("Part")
     blinkPart.Name         = "AS_BlinkMarker"
@@ -729,8 +753,9 @@ local function stopBlink()
     end
     if blinkPart and clientHRP then
         pcall(function()
-            clientHRP.Anchored = false
-            clientHRP.CFrame   = blinkPart.CFrame
+            local bv = clientHRP:FindFirstChild("AS_BlinkBV")
+            if bv then bv:Destroy() end
+            clientHRP.CFrame = blinkPart.CFrame
         end)
     end
     if blinkPart then
