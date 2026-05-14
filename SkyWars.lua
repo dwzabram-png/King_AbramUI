@@ -349,21 +349,48 @@ local function isCharacterAlive()
 end
 
 -- ==================== AUTO FARM ITERATION ====================
--- Период повторных ударов: 150мс — агрессивнее дефолта, но ниже spam-detect порога.
-local AUTO_FARM_HOLD_TICK = 0.15
-
--- Порог мгновенного TP: только для очень близких блоков
 local INSTANT_TP_DIST = 6
+local farmBlockCache = {}    -- кэш блоков, обновляется по таймеру
+local farmCacheTime = 0
+local CACHE_TTL = 0.5        -- обновлять кэш каждые 0.5с
+local lastMinedBlock = nil   -- избегаем повторного удара по тому же блоку
+
+local function refreshBlockCache()
+    local now = os.clock()
+    if now - farmCacheTime < CACHE_TTL and #farmBlockCache > 0 then return end
+    farmCacheTime = now
+    farmBlockCache = {}
+    if not oresFolder then return end
+    for _, block in ipairs(oresFolder:GetChildren()) do
+        if block.Name == "Block" and block:IsA("BasePart") then
+            farmBlockCache[#farmBlockCache + 1] = block
+        end
+    end
+end
 
 local function pickNearestBlock()
     if not (oresFolder and clientHRP) then return nil end
+    refreshBlockCache()
     local nearest, nearestDist
     local origin = clientHRP.Position
-    for _, block in ipairs(oresFolder:GetChildren()) do
-        if block.Name == "Block" and block:IsA("BasePart") then
+    for _, block in ipairs(farmBlockCache) do
+        if block.Parent then
             local dist = (origin - block.Position).Magnitude
-            if dist < Config.FarmRadius and (not nearestDist or dist < nearestDist) then
+            if dist < Config.FarmRadius
+                and (not nearestDist or dist < nearestDist)
+                and block ~= lastMinedBlock then
                 nearest, nearestDist = block, dist
+            end
+        end
+    end
+    if not nearest then
+        lastMinedBlock = nil
+        for _, block in ipairs(farmBlockCache) do
+            if block.Parent then
+                local dist = (origin - block.Position).Magnitude
+                if dist < Config.FarmRadius and (not nearestDist or dist < nearestDist) then
+                    nearest, nearestDist = block, dist
+                end
             end
         end
     end
@@ -389,7 +416,6 @@ end
 local function farmStep()
     if not isCharacterAlive() then return end
 
-    -- Защита от смерти: восстанавливаем HP если сервер наносит урон
     pcall(function()
         local hum = getHumanoid()
         if hum and hum.Health < hum.MaxHealth then
@@ -403,49 +429,52 @@ local function farmStep()
     local remote = axe:FindFirstChildWhichIsA("RemoteEvent")
     if not (remote and oresFolder) then return end
 
-    local block = pickNearestBlock()
+    local block, blockDist = pickNearestBlock()
     if not block then return end
 
     local speed = math.max(Config.TweenSpeed, 5)
     local timeScale, posJitter = 1, Vector3.zero
     if Config.AntiDetectJitter then
-        timeScale = 1 + (math.random() - 0.5) * 0.15           -- ±7.5%
+        timeScale = 1 + (math.random() - 0.5) * 0.15
         posJitter = Vector3.new(
-            (math.random() - 0.5) * 1.0,
-            (math.random() - 0.5) * 0.3,
-            (math.random() - 0.5) * 1.0
+            (math.random() - 0.5) * 0.8,
+            (math.random() - 0.5) * 0.2,
+            (math.random() - 0.5) * 0.8
         )
     end
 
     local targetCF, targetPos = computeFarmTarget(block, posJitter)
-    local moveDist  = (clientHRP.Position - targetPos).Magnitude
+    local moveDist = (clientHRP.Position - targetPos).Magnitude
 
     if farmPlatform then
         farmPlatform.CFrame = targetCF
     end
 
-    -- Disable Y-hold during tween so it doesn't fight with TweenService
     if farmBodyPos and farmBodyPos.Parent then
         farmBodyPos.MaxForce = Vector3.zero
     end
 
     pcall(function() axe:Activate() end)
 
-    local tweenTime = math.clamp(moveDist / speed * timeScale, 0.1, 1.0)
-    if activeTween then
-        pcall(function() activeTween:Cancel() end)
+    if moveDist < INSTANT_TP_DIST then
+        if clientHRP then clientHRP.CFrame = targetCF end
+        task.wait(0.05)
+    else
+        local tweenTime = math.clamp(moveDist / speed * timeScale, 0.08, 1.0)
+        if activeTween then
+            pcall(function() activeTween:Cancel() end)
+            activeTween = nil
+        end
+        activeTween = TweenService:Create(
+            clientHRP,
+            TweenInfo.new(tweenTime, Enum.EasingStyle.Linear),
+            { CFrame = targetCF }
+        )
+        activeTween:Play()
+        activeTween.Completed:Wait()
         activeTween = nil
     end
-    activeTween = TweenService:Create(
-        clientHRP,
-        TweenInfo.new(tweenTime, Enum.EasingStyle.Linear),
-        { CFrame = targetCF }
-    )
-    activeTween:Play()
-    activeTween.Completed:Wait()
-    activeTween = nil
 
-    -- Re-enable Y-hold: keeps player at block height while FireServer + wait run
     if farmBodyPos and farmBodyPos.Parent then
         farmBodyPos.Position = targetPos
         farmBodyPos.MaxForce = Vector3.new(0, math.huge, 0)
@@ -458,9 +487,25 @@ local function farmStep()
     remote = axe:FindFirstChildWhichIsA("RemoteEvent")
     if not remote then return end
 
-    pcall(function() remote:FireServer(block) end)
+    -- Удары пока блок жив (макс 3 удара, макс 0.6с)
+    local hits = 0
+    local t0 = os.clock()
+    while block.Parent and State.AutoFarm and hits < 3 and (os.clock() - t0) < 0.6 do
+        pcall(function() remote:FireServer(block) end)
+        hits = hits + 1
+        if block.Parent and hits < 3 then
+            task.wait(0.15)
+        end
+    end
 
-    task.wait(0.21)
+    lastMinedBlock = block
+
+    -- Короткая пауза между блоками + джиттер
+    local pause = 0.08
+    if Config.AntiDetectJitter then
+        pause = pause + math.random() * 0.06
+    end
+    task.wait(pause)
 end
 
 -- ==================== FEATURE LIFECYCLE ====================
@@ -472,6 +517,21 @@ local function startAutoFarm()
     ensureAntiVoid()
     startNoclip()
     refreshMap()
+
+    -- Сброс кэша блоков + авто-обновление при добавлении/удалении
+    farmBlockCache = {}
+    farmCacheTime = 0
+    lastMinedBlock = nil
+    disconnect("oresAdded")
+    disconnect("oresRemoved")
+    if oresFolder then
+        connections.oresAdded = oresFolder.ChildAdded:Connect(function()
+            farmCacheTime = 0
+        end)
+        connections.oresRemoved = oresFolder.ChildRemoved:Connect(function()
+            farmCacheTime = 0
+        end)
+    end
 
     -- Создаём platform Part для позиционирования на блоке
     if not farmPlatform or not farmPlatform.Parent then
@@ -569,6 +629,10 @@ local function stopAutoFarm()
     end
     disconnect("autoFarmRespawn")
     disconnect("autoFarmHealth")
+    disconnect("oresAdded")
+    disconnect("oresRemoved")
+    farmBlockCache = {}
+    lastMinedBlock = nil
     if farmBodyPos then
         pcall(function() farmBodyPos:Destroy() end)
         farmBodyPos = nil
