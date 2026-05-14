@@ -432,10 +432,8 @@ local function farmStep()
     local block, blockDist = pickNearestBlock()
     if not block then return end
 
-    local speed = math.max(Config.TweenSpeed, 5)
-    local timeScale, posJitter = 1, Vector3.zero
+    local posJitter = Vector3.zero
     if Config.AntiDetectJitter then
-        timeScale = 1 + (math.random() - 0.5) * 0.15
         posJitter = Vector3.new(
             (math.random() - 0.5) * 0.8,
             (math.random() - 0.5) * 0.2,
@@ -444,41 +442,21 @@ local function farmStep()
     end
 
     local targetCF, targetPos = computeFarmTarget(block, posJitter)
-    local moveDist = (clientHRP.Position - targetPos).Magnitude
 
     if farmPlatform then
         farmPlatform.CFrame = targetCF
     end
 
-    if farmBodyPos and farmBodyPos.Parent then
-        farmBodyPos.MaxForce = Vector3.zero
-    end
-
     pcall(function() axe:Activate() end)
 
-    if moveDist < INSTANT_TP_DIST then
-        if clientHRP then clientHRP.CFrame = targetCF end
-        task.wait(0.05)
-    else
-        local tweenTime = math.clamp(moveDist / speed * timeScale, 0.08, 1.0)
-        if activeTween then
-            pcall(function() activeTween:Cancel() end)
-            activeTween = nil
-        end
-        activeTween = TweenService:Create(
-            clientHRP,
-            TweenInfo.new(tweenTime, Enum.EasingStyle.Linear),
-            { CFrame = targetCF }
-        )
-        activeTween:Play()
-        activeTween.Completed:Wait()
-        activeTween = nil
-    end
+    if clientHRP then clientHRP.CFrame = targetCF end
 
     if farmBodyPos and farmBodyPos.Parent then
         farmBodyPos.Position = targetPos
         farmBodyPos.MaxForce = Vector3.new(0, math.huge, 0)
     end
+
+    task.wait(0.05)
 
     if not (block and block.Parent and State.AutoFarm) then return end
 
