@@ -451,9 +451,9 @@ local function farmStep()
 
     if clientHRP then clientHRP.CFrame = targetCF end
 
-    if farmBodyPos and farmBodyPos.Parent then
-        farmBodyPos.Position = targetPos
-        farmBodyPos.MaxForce = Vector3.new(0, math.huge, 0)
+    if farmBodyVel and farmBodyVel.Parent then
+        farmBodyVel.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        farmBodyVel.Velocity = Vector3.zero
     end
 
     task.wait(0.05)
@@ -488,7 +488,7 @@ end
 
 -- ==================== FEATURE LIFECYCLE ====================
 local farmPlatform  -- phantom platform Part, перемещается на каждый блок
-local farmBodyPos   -- BodyPosition (Y-only): holds player at block height between tweens
+local farmBodyVel   -- BodyVelocity: zero velocity + max force locks player in place after TP
 
 local function startAutoFarm()
     if activeFeatures.AutoFarm then return end
@@ -522,16 +522,12 @@ local function startAutoFarm()
         farmPlatform.Parent = workspace
     end
 
-    -- BodyPosition (Y-only) prevents falling when a mined block disappears.
-    -- Starts disabled (MaxForce=zero); farmStep enables it after each tween.
-    if farmBodyPos then pcall(function() farmBodyPos:Destroy() end) end
+    if farmBodyVel then pcall(function() farmBodyVel:Destroy() end) end
     if clientHRP then
-        farmBodyPos = Instance.new("BodyPosition")
-        farmBodyPos.MaxForce = Vector3.zero
-        farmBodyPos.P        = 10000
-        farmBodyPos.D        = 500
-        farmBodyPos.Position = clientHRP.Position
-        farmBodyPos.Parent   = clientHRP
+        farmBodyVel = Instance.new("BodyVelocity")
+        farmBodyVel.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        farmBodyVel.Velocity = Vector3.zero
+        farmBodyVel.Parent   = clientHRP
     end
 
     -- Защита от смерти: при получении урона восстанавливаем HP
@@ -551,15 +547,12 @@ local function startAutoFarm()
     connections.autoFarmRespawn = localPlayer.CharacterAdded:Connect(function()
         task.wait(0.5)
         if State.AutoFarm then
-            -- Re-create BodyPosition on new character
-            if farmBodyPos then pcall(function() farmBodyPos:Destroy() end) end
+            if farmBodyVel then pcall(function() farmBodyVel:Destroy() end) end
             if clientHRP then
-                farmBodyPos = Instance.new("BodyPosition")
-                farmBodyPos.MaxForce = Vector3.zero
-                farmBodyPos.P        = 10000
-                farmBodyPos.D        = 500
-                farmBodyPos.Position = clientHRP.Position
-                farmBodyPos.Parent   = clientHRP
+                farmBodyVel = Instance.new("BodyVelocity")
+                farmBodyVel.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+                farmBodyVel.Velocity = Vector3.zero
+                farmBodyVel.Parent   = clientHRP
             end
             pcall(function()
                 local hum = getHumanoid()
@@ -611,9 +604,9 @@ local function stopAutoFarm()
     disconnect("oresRemoved")
     farmBlockCache = {}
     lastMinedBlock = nil
-    if farmBodyPos then
-        pcall(function() farmBodyPos:Destroy() end)
-        farmBodyPos = nil
+    if farmBodyVel then
+        pcall(function() farmBodyVel:Destroy() end)
+        farmBodyVel = nil
     end
     if farmPlatform then
         pcall(function() farmPlatform:Destroy() end)
