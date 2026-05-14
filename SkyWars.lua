@@ -93,7 +93,7 @@ end))
 
 -- ==================== CONFIG ====================
 local DEFAULT_CONFIG = {
-    FarmRadius        = 105,    -- студы
+    FarmRadius        = 60,     -- студы (max ~0.75s полёта при 80 studs/s)
     TweenSpeed        = 80,     -- студов в секунду (safe for server anti-cheat)
     RescanInterval    = 2,      -- сек — период обновления mapFolder (was 5)
     AutoEquipAxe      = true,
@@ -154,6 +154,7 @@ end
 
 -- v3.0.0 migration: bump old slow defaults to new fast ones
 if Config.TweenSpeed == 50 or Config.TweenSpeed == 200 then Config.TweenSpeed = 80 end
+if Config.FarmRadius == 105 then Config.FarmRadius = 60 end
 if Config.AutoFarmHoldMax == 2 then Config.AutoFarmHoldMax = 1.2 end
 if Config.RescanInterval == 5 then Config.RescanInterval = 2 end
 saveConfig()
@@ -430,7 +431,7 @@ local function farmStep()
 
     pcall(function() axe:Activate() end)
 
-    local tweenTime = math.max(moveDist / speed * timeScale, 0.1)
+    local tweenTime = math.clamp(moveDist / speed * timeScale, 0.1, 1.0)
     if activeTween then
         pcall(function() activeTween:Cancel() end)
         activeTween = nil
