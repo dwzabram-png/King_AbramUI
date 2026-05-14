@@ -586,27 +586,38 @@ local function getEquippedSlimeUUIDs()
 		return result
 	end)
 	if ok1 and uuids1 and #uuids1 > 0 then
+		print("[Feed] Method 1 (DataService.get) found " .. #uuids1 .. " UUIDs")
 		return uuids1
 	end
+	print("[Feed] Method 1 error/empty: ok=" .. tostring(ok1) .. " result=" .. tostring(uuids1))
 
-	-- Метод 2: getDataSource("equipped") из Vide-обёртки
+	-- Метод 2: getDataSource("equipped") внутри vide.root (чтобы избежать cleanup ошибки)
 	local ok2, uuids2 = pcall(function()
+		local vide = require(ReplicatedStorage.Packages._Index["centau_vide@0.4.0"].vide)
 		local getDataSource = require(ReplicatedStorage.Source.Core.UI.Sources.getDataSource)
-		local equippedSource = getDataSource("equipped")
-		local equipped = equippedSource()
-		if not equipped or type(equipped) ~= "table" then return nil end
 		local result = {}
-		for i = 1, 8 do
-			local val = equipped[i]
-			if val and type(val) == "string" and val ~= "" then
-				table.insert(result, val)
+		vide.root(function(destroy)
+			local equippedSource = getDataSource("equipped")
+			local equipped = equippedSource()
+			print("[Feed] getDataSource equipped type: " .. type(equipped))
+			if equipped and type(equipped) == "table" then
+				for k, v in pairs(equipped) do
+					print("[Feed] equipped[" .. tostring(k) .. "] = " .. tostring(v))
+					if type(v) == "string" and v ~= "" then
+						table.insert(result, v)
+					end
+				end
 			end
-		end
-		return result
+			destroy()
+		end)
+		if #result > 0 then return result end
+		return nil
 	end)
 	if ok2 and uuids2 and #uuids2 > 0 then
+		print("[Feed] Method 2 (vide.root) found " .. #uuids2 .. " UUIDs")
 		return uuids2
 	end
+	print("[Feed] Method 2 error/empty: " .. tostring(uuids2))
 
 	-- Метод 3: getValue вместо get (альтернативный API)
 	local ok3, uuids3 = pcall(function()
@@ -624,9 +635,12 @@ local function getEquippedSlimeUUIDs()
 		return result
 	end)
 	if ok3 and uuids3 and #uuids3 > 0 then
+		print("[Feed] Method 3 (DataService.getValue) found " .. #uuids3 .. " UUIDs")
 		return uuids3
 	end
+	print("[Feed] Method 3 error/empty: ok=" .. tostring(ok3) .. " result=" .. tostring(uuids3))
 
+	print("[Feed] All methods failed — no UUIDs found")
 	return {}
 end
 
