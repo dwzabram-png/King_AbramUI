@@ -489,75 +489,61 @@ local function getEquippedSlimesSorted()
 	return sortedList
 end
 
--- Умный AutoFeed: качает самых низкоуровневых, при равенстве — рандом
+-- Умный AutoFeed: качает самого низкоуровневого
 local function FeedSlimes()
 	task.defer(function()
+		-- 1. Проверяем, что всё на месте
+		if not DataServiceClient or not InventoryUtils then return end
+		
 		local equippedUUIDs = getEquippedSlimeUUIDs()
-		if #equippedUUIDs == 0 or not DataServiceClient then return end
-
+		if #equippedUUIDs == 0 then return end
+		
 		local inventory = DataServiceClient:get("inventory") or {}
-		local slimes = {}
+		local loot = getLootCounts()
+		if not loot then return end
+
+		-- 2. Ищем самого маленького по уровню среди экипированных
+		local targetSlimeGUID = nil
+		local minLevel = math.huge
+		local targetName = ""
 
 		for _, guid in ipairs(equippedUUIDs) do
 			local rawData = inventory[guid]
-			if rawData and InventoryUtils then
+			if rawData then
 				local slimeData = InventoryUtils.getSlimeData(guid, rawData)
-				local stats = InventoryUtils.getSlimeStatsFromData(slimeData)
-				table.insert(slimes, {
-					guid = guid,
-					level = slimeData.level or 0,
-					damage = stats.damage or 0,
-					id = slimeData.id
-				})
-			end
-		end
-
-		if #slimes == 0 then return end
-
-		-- Сортируем по уровню (от меньшего к большему)
-		table.sort(slimes, function(a, b) return a.level < b.level end)
-		local minLevel = slimes[1].level
-		local maxLevel = slimes[#slimes].level
-
-		-- Выбираем кого кормить
-		local feedTargets
-		if minLevel == maxLevel then
-			-- Все одного уровня — перемешиваем рандомно
-			feedTargets = {}
-			for _, s in ipairs(slimes) do table.insert(feedTargets, s) end
-			for i = #feedTargets, 2, -1 do
-				local j = math.random(i)
-				feedTargets[i], feedTargets[j] = feedTargets[j], feedTargets[i]
-			end
-		else
-			-- Только с минимальным уровнем
-			feedTargets = {}
-			for _, s in ipairs(slimes) do
-				if s.level == minLevel then
-					table.insert(feedTargets, s)
+				local currentLevel = slimeData.level or 1
+				
+				-- Если уровень меньше текущего минимума — запоминаем
+				if currentLevel < minLevel then
+					minLevel = currentLevel
+					targetSlimeGUID = guid
+					targetName = slimeData.id
 				end
 			end
 		end
 
-		local loot = getLootCounts()
-		if not loot or #feedTargets == 0 then return end
+		-- Если все уровни равны, targetSlimeGUID всё равно будет первым из списка
+		if not targetSlimeGUID then return end
 
-		-- Раздаём еду по циклу между отстающими
-		local idx = 1
+		-- 3. Кормим выбранного бедолагу всей доступной едой
+		local fedCount = 0
 		for _, foodName in ipairs(FOOD_TYPES) do
 			local totalFood = tonumber(loot[foodName]) or 0
 			local reserve = math.max(0, tonumber(Config.FeedReserve) or 0)
 			local available = totalFood - reserve
 
 			if available > 0 then
-				local target = feedTargets[((idx - 1) % #feedTargets) + 1]
-				idx = idx + 1
-				local ok, _ = callRemote("InventoryService", "requestUseFood", foodName, target.guid, available)
+				local ok, _ = callRemote("InventoryService", "requestUseFood", foodName, targetSlimeGUID, available)
 				if ok then
-					print(string.format("Кормлю %d %s → %s (lvl %d)", available, foodName, target.id, target.level))
+					fedCount = fedCount + available
 				end
+				-- Небольшая пауза, чтобы сервер не подавился
 				task.wait(0.1)
 			end
+		end
+
+		if fedCount > 0 then
+			print(string.format("Ня! Подтянул уровень %s до %d (влил %d еды) :3", targetName, minLevel, fedCount))
 		end
 	end)
 end
