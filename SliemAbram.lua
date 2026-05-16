@@ -1281,7 +1281,7 @@ pill.Position = UDim2.new(0, 20, 0.5, -24)
 pill.BackgroundColor3 = C.Surface
 pill.AutoButtonColor = false
 pill.Text = ""
-pill.Visible = false
+pill.Visible = isMobile
 pill.Active = true
 pill.Parent = screenGui
 addCorner(pill, 14)
@@ -1633,7 +1633,7 @@ local pillDrag = false
 local pDragStart, pStartPos, pMoved
 local DRAG_THRESHOLD = 15
 
-local function isInsideMain(touchPos)
+local function isInsideTitle(touchPos)
 	local uiScaleObj = main:FindFirstChildOfClass("UIScale")
 	local s = uiScaleObj and uiScaleObj.Scale or 1
 	local vp = camera and camera.ViewportSize or Vector2.new(1920, 1080)
@@ -1641,12 +1641,15 @@ local function isInsideMain(touchPos)
 	local cy = vp.Y * main.Position.Y.Scale + main.Position.Y.Offset
 	local hw = (BASE_W * s) / 2
 	local hh = (BASE_H * s) / 2
-	return touchPos.X >= cx - hw and touchPos.X <= cx + hw and touchPos.Y >= cy - hh and touchPos.Y <= cy + hh
+	local titleHeightScaled = TITLE_H * s
+	-- Только верхняя полоса заголовка считается drag-зоной
+	return touchPos.X >= cx - hw and touchPos.X <= cx + hw
+		and touchPos.Y >= cy - hh and touchPos.Y <= cy - hh + titleHeightScaled
 end
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-		if main.Visible and isInsideMain(input.Position) then
+		if main.Visible and isInsideTitle(input.Position) then
 			dragPending = true
 			draggingMain = false
 			dragStartM = input.Position
@@ -1706,10 +1709,11 @@ local function toggleMenu()
 			end
 		end)
 	else
-		pill.Visible = false
+		pill.Visible = isMobile
 		main.Visible = true
 		main.Size = UDim2.new(0, BASE_W - 20, 0, BASE_H - 20)
 		tw(main, { Size = UDim2.new(0, BASE_W, 0, BASE_H) }, TW_POP)
+		if NS.RefreshFooterUI then NS.RefreshFooterUI() end
 	end
 end
 
@@ -1724,69 +1728,6 @@ UserInputService.InputBegan:Connect(function(input, gp)
 		toggleMenu()
 	end
 end)
-
--- ContextActionService toggle — mobile-safe button that doesn't conflict with controls
-do
-	local function handleASToggle(_actionName, inputState, _inputObject)
-		if inputState == Enum.UserInputState.Begin then
-			toggleMenu()
-			Notify("Menu", hidden and "Hidden" or "Opened")
-		end
-	end
-	ContextActionService:BindAction("ToggleAS", newcclosure(handleASToggle), true)
-	ContextActionService:SetPosition("ToggleAS", UDim2.new(0.2, 0, 0.1, 0))
-	ContextActionService:SetTitle("ToggleAS", "ABRAM MENU")
-end
-
--- Мобильная кнопка toggle (дополнительная)
-if isMobile then
-	local mobileBtn = Instance.new("TextButton")
-	mobileBtn.Size = UDim2.new(0, 44, 0, 44)
-	mobileBtn.Position = UDim2.new(1, -54, 0, 10)
-	mobileBtn.BackgroundColor3 = C.Accent
-	mobileBtn.AutoButtonColor = false
-	mobileBtn.Text = ""
-	mobileBtn.Active = true
-	mobileBtn.ZIndex = 10
-	mobileBtn.Parent = screenGui
-	addCorner(mobileBtn, 22)
-	addStroke(mobileBtn, C.BorderHi, 1)
-
-	local mobileBtnIcon = Instance.new("TextLabel")
-	mobileBtnIcon.Size = UDim2.new(1, 0, 1, 0)
-	mobileBtnIcon.BackgroundTransparency = 1
-	mobileBtnIcon.Font = Enum.Font.GothamBold
-	mobileBtnIcon.Text = "AS"
-	mobileBtnIcon.TextSize = 16
-	mobileBtnIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
-	mobileBtnIcon.ZIndex = 11
-	mobileBtnIcon.Parent = mobileBtn
-
-	mobileBtn.MouseButton1Click:Connect(function()
-		toggleMenu()
-	end)
-
-	-- Drag мобильной кнопки
-	local mbDrag, mbStart, mbStartPos = false, nil, nil
-	mobileBtn.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.Touch then
-			mbDrag = true
-			mbStart = input.Position
-			mbStartPos = mobileBtn.Position
-		end
-	end)
-	UserInputService.InputChanged:Connect(function(input)
-		if mbDrag and input.UserInputType == Enum.UserInputType.Touch then
-			local d = input.Position - mbStart
-			mobileBtn.Position = UDim2.new(mbStartPos.X.Scale, mbStartPos.X.Offset + d.X, mbStartPos.Y.Scale, mbStartPos.Y.Offset + d.Y)
-		end
-	end)
-	UserInputService.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.Touch then
-			mbDrag = false
-		end
-	end)
-end
 
 -- Адаптация при смене разрешения (поворот экрана и т.д.)
 if camera and isMobile then
@@ -1809,7 +1750,7 @@ task.spawn(function()
 	end
 end)
 
-local loadMsg = ("v%s loaded. Stealth: ACTIVE."):format(VERSION) .. (isMobile and " Tap ABRAM MENU to toggle." or " Press ALT or click AS icon.")
+local loadMsg = ("v%s loaded. Stealth: ACTIVE."):format(VERSION) .. (isMobile and " Tap AS icon to toggle." or " Press ALT or click AS icon.")
 Notify("AbramSliem", loadMsg)
 if not httpRequest then
 	Notify("AbramSliem", "Note: executor lacks HTTP API — Discord webhook disabled.")
