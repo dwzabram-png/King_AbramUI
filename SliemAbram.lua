@@ -12,9 +12,12 @@ local CoreGui = game:GetService("CoreGui")
 local TweenService = game:GetService("TweenService")
 local ContextActionService = game:GetService("ContextActionService")
 
-local InventoryUtils
+local InventoryUtils, GameplayServiceClient, GoopGunUtils, DataServiceClient
 pcall(function()
 	InventoryUtils = require(ReplicatedStorage.Source.Features.Inventory.InventoryServiceUtils)
+	GameplayServiceClient = require(ReplicatedStorage.Source.Features.Gameplay.GameplayServiceClient)
+	GoopGunUtils = require(ReplicatedStorage.Source.Features.GoopGun.GoopGunServiceUtils)
+	DataServiceClient = require(ReplicatedStorage.Packages.DataService).client
 end)
 
 local localPlayer = Players.LocalPlayer
@@ -577,12 +580,43 @@ local function findSlimeGunRemote()
 	return nil
 end
 
+local function getClosestTarget(range)
+	if not GameplayServiceClient then return nil end
+	local gameplay = GameplayServiceClient.gameplay
+	if not gameplay or not gameplay.enemies then return nil end
+	local char = localPlayer.Character
+	if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
+	local myPos = char.HumanoidRootPart.Position
+	local closestId = nil
+	local shortestDist = range
+	for id, enemy in pairs(gameplay.enemies) do
+		if enemy.model and not enemy.dead then
+			local dist = (enemy.pos - myPos).Magnitude
+			if dist < shortestDist then
+				shortestDist = dist
+				closestId = id
+			end
+		end
+	end
+	return closestId
+end
+
+local function getAutoGunFireRate()
+	if GoopGunUtils and DataServiceClient then
+		local upgrades = DataServiceClient:get("upgrades") or {}
+		return GoopGunUtils.getFireRate(upgrades)
+	end
+	return 0.1
+end
+
 local function AutoGun()
 	local rf = findSlimeGunRemote()
 	if not rf then return end
-	for _ = 1, 10 do
-		pcall(function() rf:InvokeServer("tryFireSlimeGun", 159829) end)
-		task.wait(0.01)
+	local upgrades = DataServiceClient and DataServiceClient:get("upgrades") or {}
+	local range = GoopGunUtils and GoopGunUtils.getRange(upgrades) or 100
+	local targetId = getClosestTarget(range)
+	if targetId then
+		pcall(function() rf:InvokeServer("tryFireSlimeGun", targetId) end)
 	end
 end
 
@@ -694,13 +728,7 @@ local FEATURES = {
 	},
 	AutoGun = {
 		kind = "task_loop",
-		getInterval = function()
-			if GoopGunUtils and DataServiceClient then
-				local upgrades = DataServiceClient:get("upgrades") or {}
-				return GoopGunUtils.getFireRate(upgrades)
-			end
-			return 0.1
-		end,
+		getInterval = function() return getAutoGunFireRate() end,
 		action = function() AutoGun() end
 	},
 	Webhook = {
