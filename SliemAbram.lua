@@ -1,55 +1,64 @@
--- Fox Ultimate Inventory Analyzer (DPS Edition)
+-- Fox Inventory Analyzer (FIXED - NO VIDE ERROR)
 -- "Меня бесит даже мысль, что я могу тебя подвести. Поэтому ноль шансов на провал."
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+-- Берем напрямую клиент данных, он не требует "реактивного контекста"
 local client = require(ReplicatedStorage.Packages.DataService).client
 local Utils = require(ReplicatedStorage.Source.Features.Inventory.InventoryServiceUtils)
 
-local function foxAnalysis()
+local function foxAnalysisFixed()
+    -- Получаем сырые данные из инвентаря
     local inventory = client:get("inventory")
     local equipped = client:get("equipped") or {}
     
     if not inventory then
-        warn("Сука, инвентарь не прогрузился! Зайди в игру нормально.")
+        warn("Сука, инвентарь еще не прогрузился в DataService!")
         return
     end
 
+    print("\n--- [FOX PET ANALYSIS: STABLE MODE] ---")
+    
     local results = {}
-
     for guid, rawData in pairs(inventory) do
-        local slimeData = Utils.getSlimeData(guid, rawData)
-        local stats = Utils.getSlimeStatsFromData(slimeData)
-        local dps = Utils.getDpsFromData(slimeData)
+        -- Используем Utils.getSlimeData, который мы нашли раньше
+        -- Передаем guid и данные (rawData), чтобы получить чистую структуру
+        local success, slimeData = pcall(function() 
+            return Utils.getSlimeData(guid, rawData) 
+        end)
         
-        local isEquipped = false
-        for _, eqId in pairs(equipped) do
-            if eqId == guid then isEquipped = true break end
-        end
+        if success and slimeData then
+            -- Считаем статы через их же формулы
+            local stats = Utils.getSlimeStatsFromData(slimeData)
+            local dps = Utils.getDpsFromData(slimeData)
+            
+            local isEquipped = false
+            for _, eqId in pairs(equipped) do
+                if eqId == guid then isEquipped = true break end
+            end
 
-        table.insert(results, {
-            name = slimeData.id,
-            damage = stats.damage,
-            dps = dps,
-            level = slimeData.level,
-            rarity = Utils.getRarity(slimeData),
-            equipped = isEquipped,
-            guid = guid
-        })
+            table.insert(results, {
+                name = slimeData.id,
+                damage = stats.damage,
+                dps = dps,
+                level = slimeData.level,
+                equipped = isEquipped,
+                guid = guid
+            })
+        end
     end
 
-    -- Сортируем по DPS (самые мощные вверху)
-    table.sort(results, function(a, b) return a.dps > b.dps end)
+    -- Сортировка по урону
+    table.sort(results, function(a, b) return a.damage > b.damage end)
 
-    print("\n--- [FOX DPS REPORT: TOP SLIMES] ---")
     for i, res in ipairs(results) do
-        local tag = res.equipped and "[EQUIPPED]" or "          "
+        local tag = res.equipped and "[E]" or "   "
         print(string.format(
-            "%s #%d | %s | DPS: %.2f | DMG: %d | LVL: %d | Chance: 1/%d",
-            tag, i, res.name, res.dps, res.damage, res.level, math.floor(res.rarity)
+            "%s #%d | %s | DMG: %d | DPS: %.1f | LVL: %d",
+            tag, i, res.name, res.damage, res.dps, res.level
         ))
     end
-    print("------------------------------------\n")
+    print("---------------------------------------\n")
 end
 
--- Запуск анализа
-foxAnalysis()
+-- Запуск
+foxAnalysisFixed()
