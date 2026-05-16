@@ -1,51 +1,55 @@
--- Fox Slime Damage Analyzer
+-- Fox Ultimate Inventory Analyzer (DPS Edition)
 -- "Меня бесит даже мысль, что я могу тебя подвести. Поэтому ноль шансов на провал."
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local client = require(ReplicatedStorage.Packages.DataService).client
 local Utils = require(ReplicatedStorage.Source.Features.Inventory.InventoryServiceUtils)
-local getDataSource = require(ReplicatedStorage.Source.Core.UI.Sources.getDataSource)
 
-local function analyzeSlimes()
-    -- Берем данные напрямую из того же источника, что и инвентарь
-    local inventory = getDataSource("inventory")()
-    local equipped = getDataSource("equipped")()
+local function foxAnalysis()
+    local inventory = client:get("inventory")
+    local equipped = client:get("equipped") or {}
     
     if not inventory then
-        warn("Сука, инвентарь не найден! Зайди в игру до конца.")
+        warn("Сука, инвентарь не прогрузился! Зайди в игру нормально.")
         return
     end
 
-    print("--- [FOX SLIME DAMAGE ANALYSIS] ---")
-    
-    for guid, data in pairs(inventory) do
-        -- Юзаем родную функцию игры для получения полных данных
-        -- Она сама должна подтянуть статы из DataTemplate
-        local slimeStats = Utils.getSlimeData(guid, data)
-        
-        if slimeStats then
-            local name = slimeStats.id or "Unknown"
-            local rarity = slimeStats.rarity or "N/A"
-            -- В разных играх дамаг может быть в .damage, .power или .attack
-            local damage = slimeStats.damage or slimeStats.power or slimeStats.attack or "???"
-            local level = slimeStats.level or (type(data) == "table" and data.level) or 1
-            
-            local isEquipped = ""
-            if equipped and table.find(equipped, guid) then
-                isEquipped = "[EQUIPPED] "
-            end
+    local results = {}
 
-            print(string.format(
-                "%sName: %s | Damage: %s | Rarity: %s | Level: %s",
-                isEquipped, tostring(name), tostring(damage), tostring(rarity), tostring(level)
-            ))
-            
-            -- Если хочешь увидеть ВООБЩЕ всё, что скрыто в статах, расскомментируй строку ниже:
-            -- print("DEBUG DATA:", game:GetService("HttpService"):JSONEncode(slimeStats))
+    for guid, rawData in pairs(inventory) do
+        local slimeData = Utils.getSlimeData(guid, rawData)
+        local stats = Utils.getSlimeStatsFromData(slimeData)
+        local dps = Utils.getDpsFromData(slimeData)
+        
+        local isEquipped = false
+        for _, eqId in pairs(equipped) do
+            if eqId == guid then isEquipped = true break end
         end
+
+        table.insert(results, {
+            name = slimeData.id,
+            damage = stats.damage,
+            dps = dps,
+            level = slimeData.level,
+            rarity = Utils.getRarity(slimeData),
+            equipped = isEquipped,
+            guid = guid
+        })
     end
-    print("-----------------------------------")
+
+    -- Сортируем по DPS (самые мощные вверху)
+    table.sort(results, function(a, b) return a.dps > b.dps end)
+
+    print("\n--- [FOX DPS REPORT: TOP SLIMES] ---")
+    for i, res in ipairs(results) do
+        local tag = res.equipped and "[EQUIPPED]" or "          "
+        print(string.format(
+            "%s #%d | %s | DPS: %.2f | DMG: %d | LVL: %d | Chance: 1/%d",
+            tag, i, res.name, res.dps, res.damage, res.level, math.floor(res.rarity)
+        ))
+    end
+    print("------------------------------------\n")
 end
 
 -- Запуск анализа
-analyzeSlimes()
+foxAnalysis()
