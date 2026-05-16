@@ -492,28 +492,34 @@ end
 -- Умный AutoFeed: качает самого низкоуровневого
 local function FeedSlimes()
 	task.defer(function()
-		-- 1. Проверяем, что всё на месте
-		if not DataServiceClient or not InventoryUtils then return end
-		
+		if not DataServiceClient or not InventoryUtils then
+			print("[Feed] FAIL: DataServiceClient or InventoryUtils is nil")
+			return
+		end
+
 		local equippedUUIDs = getEquippedSlimeUUIDs()
+		print("[Feed] equipped UUIDs:", #equippedUUIDs)
 		if #equippedUUIDs == 0 then return end
-		
+
 		local inventory = DataServiceClient:get("inventory") or {}
+		print("[Feed] inventory keys:", table.concat(table.keys(inventory) or {"<no keys>"}, ", ", 1, math.min(5, #(table.keys(inventory) or {}))))
+
 		local loot = getLootCounts()
+		print("[Feed] loot:", loot and "got" or "nil")
 		if not loot then return end
 
-		-- 2. Ищем самого маленького по уровню среди экипированных
 		local targetSlimeGUID = nil
 		local minLevel = math.huge
 		local targetName = ""
 
 		for _, guid in ipairs(equippedUUIDs) do
 			local rawData = inventory[guid]
+			print(string.format("[Feed] guid=%s rawData=%s", guid, rawData and "yes" or "nil"))
 			if rawData then
 				local slimeData = InventoryUtils.getSlimeData(guid, rawData)
 				local currentLevel = slimeData.level or 1
-				
-				-- Если уровень меньше текущего минимума — запоминаем
+				print(string.format("[Feed] slime %s level=%d", slimeData.id, currentLevel))
+
 				if currentLevel < minLevel then
 					minLevel = currentLevel
 					targetSlimeGUID = guid
@@ -522,22 +528,26 @@ local function FeedSlimes()
 			end
 		end
 
-		-- Если все уровни равны, targetSlimeGUID всё равно будет первым из списка
-		if not targetSlimeGUID then return end
+		if not targetSlimeGUID then
+			print("[Feed] FAIL: no target slime found")
+			return
+		end
+		print(string.format("[Feed] target: %s (lvl %d, guid=%s)", targetName, minLevel, targetSlimeGUID))
 
-		-- 3. Кормим выбранного бедолагу всей доступной едой
 		local fedCount = 0
 		for _, foodName in ipairs(FOOD_TYPES) do
 			local totalFood = tonumber(loot[foodName]) or 0
 			local reserve = math.max(0, tonumber(Config.FeedReserve) or 0)
 			local available = totalFood - reserve
 
+			print(string.format("[Feed] %s: total=%d reserve=%d available=%d", foodName, totalFood, reserve, available))
+
 			if available > 0 then
-				local ok, _ = callRemote("InventoryService", "requestUseFood", foodName, targetSlimeGUID, available)
+				local ok, err = callRemote("InventoryService", "requestUseFood", foodName, targetSlimeGUID, available)
+				print(string.format("[Feed] callRemote(%s) → ok=%s err=%s", foodName, ok, tostring(err)))
 				if ok then
 					fedCount = fedCount + available
 				end
-				-- Небольшая пауза, чтобы сервер не подавился
 				task.wait(0.1)
 			end
 		end
