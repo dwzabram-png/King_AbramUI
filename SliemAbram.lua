@@ -1,6 +1,6 @@
 repeat task.wait() until game:IsLoaded()
 
-local VERSION = "1.2.0"
+local VERSION = "1.2.1"
 
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
@@ -467,7 +467,9 @@ end
 -- Сортировка экипированных слаймов по дамагу (от большего к меньшему)
 local function getEquippedSlimesSorted()
 	local equippedUUIDs = getEquippedSlimeUUIDs()
-	local inventory = DataServiceClient and DataServiceClient:get("inventory") or {}
+	if not DataServiceClient then return {} end
+
+	local inventory = DataServiceClient:get("inventory") or {}
 	local sortedList = {}
 
 	for _, guid in ipairs(equippedUUIDs) do
@@ -477,7 +479,7 @@ local function getEquippedSlimesSorted()
 			local stats = InventoryUtils.getSlimeStatsFromData(slimeData)
 			table.insert(sortedList, {
 				guid = guid,
-				damage = stats.damage,
+				damage = stats.damage or 0,
 				id = slimeData.id
 			})
 		end
@@ -535,7 +537,7 @@ local function Roll()
 	callRemote("RollService", "requestRoll")
 end
 
--- Auto Gun: бесконечная стрельба 10 раз в секунду
+-- Очищенный поиск ремОута без лишнего спама
 local slimeGunRemote = nil
 local function findSlimeGunRemote()
 	if slimeGunRemote and slimeGunRemote.Parent then
@@ -548,12 +550,10 @@ local function findSlimeGunRemote()
 			local remotes = child:FindFirstChild("networker") and child.networker:FindFirstChild("_remotes")
 			if remotes then
 				local svc = remotes:FindFirstChild("SlimeGunService")
-				if svc then
-					local rf = svc:FindFirstChild("RemoteFunction")
-					if rf then
-						slimeGunRemote = rf
-						return rf
-					end
+				local rf = svc and svc:FindFirstChild("RemoteFunction")
+				if rf then
+					slimeGunRemote = rf
+					return rf
 				end
 			end
 		end
@@ -590,12 +590,15 @@ local function getAutoGunFireRate()
 	return 0.1
 end
 
+-- Исправленный AutoGun: берёт цель по КД твоей пушки
 local function AutoGun()
 	local rf = findSlimeGunRemote()
-	if not rf then return end
-	local upgrades = DataServiceClient and DataServiceClient:get("upgrades") or {}
-	local range = GoopGunUtils and GoopGunUtils.getRange(upgrades) or 100
+	if not rf or not DataServiceClient then return end
+
+	local upgrades = DataServiceClient:get("upgrades") or {}
+	local range = (GoopGunUtils and GoopGunUtils.getRange(upgrades)) or 100
 	local targetId = getClosestTarget(range)
+
 	if targetId then
 		pcall(function() rf:InvokeServer("tryFireSlimeGun", targetId) end)
 	end
