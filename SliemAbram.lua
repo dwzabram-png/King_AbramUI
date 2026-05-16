@@ -79,14 +79,10 @@ local State = {
 	AutoRebirth = false,
 	AutoEquipBest = false,
 	AutoFeed = false,
-	AutoCollect = false,
-	AutoTrash = false,
-	AutoJackpot = false,
+	AutoGun = false,
 	Webhook = false,
-	ZeroLoad = false,
 }
 
-local KEEP_MUTATIONS = {["inverted"] = true, ["huge"] = true, ["shiny"] = true}
 local DEFAULT_CONFIG = {
 	AutoBestZoneInterval = 15,
 	AutoUpgradeInterval = 30,
@@ -260,137 +256,6 @@ local function getGameplayFolder()
 		end
 	end
 	return nil
-end
-
--- ===== ZERO LOAD MODE =====
--- Однокнопочный «снять всю нагрузку» — всё агрессивное в одном режиме.
--- Некоторые изменения необратимы в пределах сессии (Destroy Decal/Texture, понижение
--- QualityLevel, FPS cap) — полный откат только через реджойн.
-local Lighting = game:GetService("Lighting")
-local POSTFX_CLASSES = { "BloomEffect", "BlurEffect", "ColorCorrectionEffect", "DepthOfFieldEffect", "SunRaysEffect" }
-local EFFECT_CLASSES = { "ParticleEmitter", "Beam", "Trail", "Smoke", "Fire", "Sparkles" }
-
-local function isAnyClass(inst, classes)
-	for _, cls in ipairs(classes) do
-		if inst:IsA(cls) then return true end
-	end
-	return false
-end
-
-local ZeroLoadState = { applied = false, conn = nil, original = {} }
-
-local function applyZeroLoadInstance(inst)
-	if inst:IsA("BasePart") then
-		pcall(function()
-			inst.Material = Enum.Material.Plastic
-			inst.Reflectance = 0
-			inst.CastShadow = false
-		end)
-	elseif isAnyClass(inst, EFFECT_CLASSES) then
-		pcall(function() inst.Enabled = false end)
-	elseif inst:IsA("Explosion") then
-		pcall(function() inst.BlastRadius = 0; inst.Visible = false end)
-	elseif inst:IsA("Decal") or inst:IsA("Texture") or inst:IsA("SurfaceAppearance") then
-		pcall(function() inst:Destroy() end)
-	elseif isAnyClass(inst, POSTFX_CLASSES) then
-		pcall(function() inst.Enabled = false end)
-	end
-end
-
-local function applyZeroLoad()
-	if ZeroLoadState.applied then return end
-	ZeroLoadState.applied = true
-
-	-- Lighting: тени, туман, все PostFX
-	pcall(function()
-		ZeroLoadState.original.GlobalShadows = Lighting.GlobalShadows
-		ZeroLoadState.original.FogEnd        = Lighting.FogEnd
-		Lighting.GlobalShadows = false
-		Lighting.FogEnd = 1e9
-	end)
-	for _, fx in ipairs(Lighting:GetChildren()) do
-		if isAnyClass(fx, POSTFX_CLASSES) then
-			pcall(function() fx.Enabled = false end)
-		end
-	end
-
-	-- Terrain: декорация офф, вода плоская и прозрачная
-	pcall(function()
-		local t = workspace.Terrain
-		ZeroLoadState.original.Decoration         = t.Decoration
-		ZeroLoadState.original.WaterWaveSize      = t.WaterWaveSize
-		ZeroLoadState.original.WaterWaveSpeed     = t.WaterWaveSpeed
-		ZeroLoadState.original.WaterReflectance   = t.WaterReflectance
-		ZeroLoadState.original.WaterTransparency  = t.WaterTransparency
-		t.Decoration       = false
-		t.WaterWaveSize    = 0
-		t.WaterWaveSpeed   = 0
-		t.WaterReflectance = 0
-		t.WaterTransparency = 1
-	end)
-
-	-- Rendering quality до минимума
-	pcall(function()
-		if type(sethiddenproperty) == "function" then
-			sethiddenproperty(settings().Rendering, "QualityLevel", 1)
-		else
-			settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
-		end
-	end)
-
-	-- FPS cap (если executor поддерживает)
-	pcall(function()
-		if type(setfpscap) == "function" then setfpscap(30) end
-	end)
-
-	-- Спрятать чужие PlayerGui — они тоже жрут UI-render
-	pcall(function()
-		for _, p in ipairs(Players:GetPlayers()) do
-			if p ~= localPlayer then
-				local pg = p:FindFirstChild("PlayerGui")
-				if pg then
-					for _, gui in ipairs(pg:GetChildren()) do
-						if gui:IsA("ScreenGui") then
-							pcall(function() gui.Enabled = false end)
-						end
-					end
-				end
-			end
-		end
-	end)
-
-	-- Пройти по всей иерархии + подписаться на новые объекты
-	for _, v in ipairs(game:GetDescendants()) do
-		applyZeroLoadInstance(v)
-	end
-	ZeroLoadState.conn = game.DescendantAdded:Connect(applyZeroLoadInstance)
-
-	Notify("Zero Load", "Maximum perf mode — rejoin to restore visuals")
-end
-
-local function disableZeroLoad()
-	if not ZeroLoadState.applied then return end
-	ZeroLoadState.applied = false
-	if ZeroLoadState.conn then
-		pcall(function() ZeroLoadState.conn:Disconnect() end)
-		ZeroLoadState.conn = nil
-	end
-
-	-- Частичный откат: восстанавливаем только Lighting и Terrain.
-	-- Удалённые Decal/Texture и PostFX/QualityLevel/FPS cap — только реджойн.
-	pcall(function()
-		if ZeroLoadState.original.GlobalShadows ~= nil then Lighting.GlobalShadows = ZeroLoadState.original.GlobalShadows end
-		if ZeroLoadState.original.FogEnd        ~= nil then Lighting.FogEnd        = ZeroLoadState.original.FogEnd end
-	end)
-	pcall(function()
-		local t = workspace.Terrain
-		if ZeroLoadState.original.Decoration        ~= nil then t.Decoration        = ZeroLoadState.original.Decoration end
-		if ZeroLoadState.original.WaterWaveSize     ~= nil then t.WaterWaveSize     = ZeroLoadState.original.WaterWaveSize end
-		if ZeroLoadState.original.WaterWaveSpeed    ~= nil then t.WaterWaveSpeed    = ZeroLoadState.original.WaterWaveSpeed end
-		if ZeroLoadState.original.WaterReflectance  ~= nil then t.WaterReflectance  = ZeroLoadState.original.WaterReflectance end
-		if ZeroLoadState.original.WaterTransparency ~= nil then t.WaterTransparency = ZeroLoadState.original.WaterTransparency end
-	end)
-	ZeroLoadState.original = {}
 end
 
 local function toggleNoclip(value)
@@ -716,57 +581,38 @@ local function Roll()
 	callRemote("RollService", "requestRoll")
 end
 
--- Jackpot Sniper: auto-spend armed jackpot spins
-local function TryJackpotRoll()
-	local ok, ds = pcall(function() return require(ReplicatedStorage.Packages.DataService).client end)
-	if ok and ds then
-		local armed = 0
-		pcall(function() armed = ds:get({"armedJackpotSpins"}) or 0 end)
-		if armed > 0 then
-			callRemote("RollService", "requestJackpotRoll")
-		end
+-- Auto Gun: бесконечная стрельба 10 раз в секунду
+local slimeGunRemote = nil
+local function findSlimeGunRemote()
+	if slimeGunRemote and slimeGunRemote.Parent then
+		return slimeGunRemote
 	end
-end
-
--- Smart Trash: delete non-equipped slimes without rare mutations
-local function RunAutoTrash()
-	local ok, ds = pcall(function() return require(ReplicatedStorage.Packages.DataService).client end)
-	if not ok or not ds then return end
-	local inv, equipped
-	pcall(function() inv = ds:get({"inventory"}) end)
-	pcall(function() equipped = ds:get({"equipped"}) or {} end)
-	if not inv then return end
-
-	for uid, data in pairs(inv) do
-		if type(data) == "table" and data.id then
-			local isEquipped = false
-			for _, eq in pairs(equipped) do
-				if eq == uid then isEquipped = true break end
-			end
-			if not isEquipped then
-				local isRare = false
-				if data.mutations then
-					for m, _ in pairs(data.mutations) do
-						if KEEP_MUTATIONS[m] then isRare = true break end
+	local networkerIdx = ReplicatedStorage.Packages._Index
+	if not networkerIdx then return nil end
+	for _, child in ipairs(networkerIdx:GetChildren()) do
+		if child.Name:find("networker") then
+			local remotes = child:FindFirstChild("networker") and child.networker:FindFirstChild("_remotes")
+			if remotes then
+				local svc = remotes:FindFirstChild("SlimeGunService")
+				if svc then
+					local rf = svc:FindFirstChild("RemoteFunction")
+					if rf then
+						slimeGunRemote = rf
+						return rf
 					end
 				end
-				if not isRare then
-					callRemote("InventoryService", "requestDeleteSlime", uid)
-					task.wait(0.05)
-				end
 			end
 		end
 	end
+	return nil
 end
 
--- Auto Collect: request collection of loot items via LootService
-local function CollectLoot()
-	local loot = workspace:FindFirstChild("Loot")
-	if not loot then return end
-	for _, item in pairs(loot:GetChildren()) do
-		if item:IsA("BasePart") or item:FindFirstChildWhichIsA("BasePart") then
-			callRemote("LootService", "requestCollect", item.Name)
-		end
+local function AutoGun()
+	local rf = findSlimeGunRemote()
+	if not rf then return end
+	for _ = 1, 10 do
+		pcall(function() rf:InvokeServer("tryFireSlimeGun", 159829) end)
+		task.wait(0.01)
 	end
 end
 
@@ -876,20 +722,10 @@ local FEATURES = {
 		getInterval = function() return Config.AutoFeedInterval end,
 		action = function() FeedSlimes() end
 	},
-	AutoCollect = {
+	AutoGun = {
 		kind = "task_loop",
-		getInterval = function() return 0.2 end,
-		action = function() CollectLoot() end
-	},
-	AutoTrash = {
-		kind = "task_loop",
-		getInterval = function() return 5 end,
-		action = function() RunAutoTrash() end
-	},
-	AutoJackpot = {
-		kind = "task_loop",
-		getInterval = function() return 0.2 end,
-		action = function() TryJackpotRoll() end
+		getInterval = function() return 0.1 end,
+		action = function() AutoGun() end
 	},
 	Webhook = {
 		kind = "task_loop",
@@ -904,11 +740,6 @@ local FEATURES = {
 				})
 			end
 		end
-	},
-	ZeroLoad = {
-		kind = "custom",
-		onStart = applyZeroLoad,
-		onStop  = disableZeroLoad,
 	},
 }
 
@@ -1568,11 +1399,7 @@ createToggle(pageMain, "Auto Farm",      "AutoFarm")
 createToggle(pageMain, "Auto Potions",   "AutoPotions")
 createToggle(pageMain, "Auto Kill",      "AutoKill")
 createToggle(pageMain, "Auto Best Zone", "AutoTeleportBestZone")
-createToggle(pageMain, "Auto Collect",   "AutoCollect")
-createToggle(pageMain, "Auto Trash (Smart)", "AutoTrash")
-createToggle(pageMain, "Jackpot Sniper", "AutoJackpot")
-createSection(pageMain, "Performance")
-createToggle(pageMain, "Zero Load", "ZeroLoad")
+createToggle(pageMain, "Auto Gun",       "AutoGun")
 createSection(pageMain, "Settings")
 createInput(pageMain, "Zone interval (s)", Config.AutoBestZoneInterval, function(v)
 	Config.AutoBestZoneInterval = math.max(1, tonumber(v) or 30)
