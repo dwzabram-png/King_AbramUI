@@ -439,10 +439,9 @@ local FOOD_TYPES = {"apple", "grapes", "banana", "pizza", "drumstick", "chicken"
 
 -- Получение UUID экипированных слаймов через DataService
 local function getEquippedSlimeUUIDs()
+	if not DataServiceClient then return {} end
 	local ok, uuids = pcall(function()
-		local DataService = require(ReplicatedStorage.Packages.DataService)
-		local c = DataService.client
-		local equipped = c:get({"equipped"})
+		local equipped = DataServiceClient:get({"equipped"})
 		if not equipped or type(equipped) ~= "table" then return nil end
 		local result = {}
 		for i = 1, 8 do
@@ -453,33 +452,22 @@ local function getEquippedSlimeUUIDs()
 		end
 		return result
 	end)
-	if ok and uuids and #uuids > 0 then
-		return uuids
-	end
-	return {}
+	return (ok and uuids) or {}
 end
 
 -- Получение количества еды через DataService (loot)
 local function getLootCounts()
+	if not DataServiceClient then return nil end
 	local ok, loot = pcall(function()
-		local DataService = require(ReplicatedStorage.Packages.DataService)
-		local c = DataService.client
-		local data = c:get({"loot"})
-		if not data then
-			data = c:get({"items"})
-		end
-		return data
+		return DataServiceClient:get({"loot"}) or DataServiceClient:get({"items"})
 	end)
-	if ok and loot and type(loot) == "table" then
-		return loot
-	end
-	return nil
+	return (ok and loot) or nil
 end
 
 -- Сортировка экипированных слаймов по дамагу (от большего к меньшему)
 local function getEquippedSlimesSorted()
 	local equippedUUIDs = getEquippedSlimeUUIDs()
-	local inventory = client and client:get("inventory") or {}
+	local inventory = DataServiceClient and DataServiceClient:get("inventory") or {}
 	local sortedList = {}
 
 	for _, guid in ipairs(equippedUUIDs) do
@@ -503,40 +491,33 @@ end
 local function FeedSlimes()
 	task.defer(function()
 		local sortedSlimes = getEquippedSlimesSorted()
-		if #sortedSlimes == 0 then
-			Notify("Feed", "No equipped slimes found")
-			return
-		end
+		if #sortedSlimes == 0 then return end
 
 		local loot = getLootCounts()
 		if not loot then return end
 
-		local fedCount = 0
 		for _, foodName in ipairs(FOOD_TYPES) do
 			local totalFood = tonumber(loot[foodName]) or 0
 			local reserve = math.max(0, tonumber(Config.FeedReserve) or 0)
 			local available = totalFood - reserve
 
 			if available > 0 then
+				-- КОРМИМ ТОЛЬКО САМОГО СИЛЬНОГО (первый в списке)
 				local bestSlime = sortedSlimes[1]
 				local ok, _ = callRemote("InventoryService", "requestUseFood", foodName, bestSlime.guid, available)
 				if ok then
-					fedCount = fedCount + available
+					print(string.format("Ня! Скормил %d %s пету %s", available, foodName, bestSlime.id))
 				end
 				task.wait(0.1)
 			end
-		end
-
-		if fedCount > 0 then
-			Notify("Feed", "Fed " .. fedCount .. " food to top slime")
 		end
 	end)
 end
 
 -- Ручной AutoEquipBest: экипируем топ-дамагеров через игровой калькулятор
 local function EquipBestManual()
-	local inventory = client and client:get("inventory") or {}
-	local upgrades = client and client:get("upgrades") or {}
+	local inventory = DataServiceClient and DataServiceClient:get("inventory") or {}
+	local upgrades = DataServiceClient and DataServiceClient:get("upgrades") or {}
 	local maxSlots = InventoryUtils and InventoryUtils.getOwnedSlotCount(upgrades, 0) or 8
 
 	local bestUUIDs = InventoryUtils and InventoryUtils.getBestEquippedUniqueIds(inventory, maxSlots)
@@ -546,7 +527,7 @@ local function EquipBestManual()
 		callRemote("InventoryService", "equipSlime", guid)
 		task.wait(0.05)
 	end
-	Notify("AutoEquip", "Equipped top " .. #bestUUIDs .. " slimes by real damage!")
+	Notify("AutoEquip", "Equipped top " .. #bestUUIDs .. " slimes by DPS!")
 end
 
 -- [FIXED ROLL]
