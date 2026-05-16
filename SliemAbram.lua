@@ -455,13 +455,80 @@ local function getEquippedSlimeUUIDs()
 	return (ok and uuids) or {}
 end
 
--- Получение количества еды через DataService (loot)
+-- Fox "Equalizer" Debug Edition
+
+-- 1. Исправляем получение еды (юзаем DataServiceClient, который ты объявил в начале)
 local function getLootCounts()
 	if not DataServiceClient then return nil end
 	local ok, loot = pcall(function()
-		return DataServiceClient:get({"loot"}) or DataServiceClient:get({"items"})
+		return DataServiceClient:get("items") or DataServiceClient:get("loot")
 	end)
 	return (ok and loot) or nil
+end
+
+-- 2. Исправляем сортировку (убираем client, ставим DataServiceClient)
+local function getEquippedSlimesSorted()
+	local equippedUUIDs = getEquippedSlimeUUIDs()
+	if not DataServiceClient then return {} end
+	
+	local inventory = DataServiceClient:get("inventory") or {}
+	local sortedList = {}
+
+	for _, guid in ipairs(equippedUUIDs) do
+		local rawData = inventory[guid]
+		if rawData and InventoryUtils then
+			local slimeData = InventoryUtils.getSlimeData(guid, rawData)
+			local stats = InventoryUtils.getSlimeStatsFromData(slimeData)
+			table.insert(sortedList, {
+				guid = guid,
+				damage = stats.damage or 0,
+				level = slimeData.level or 1,
+				id = slimeData.id
+			})
+		end
+	end
+	
+	table.sort(sortedList, function(a, b) return a.damage > b.damage end)
+	return sortedList
+end
+
+-- 3. САМА КОРМЁЖКА (Обновлённая логика)
+local function FeedSlimes()
+	task.defer(function()
+		if not DataServiceClient or not InventoryUtils then return end
+		
+		local sorted = getEquippedSlimesSorted()
+		if #sorted == 0 then return end
+		
+		local target = sorted[1]
+		local minLvl = math.huge
+		
+		for _, s in ipairs(sorted) do
+			if s.level < minLvl then
+				minLvl = s.level
+				target = s
+			end
+		end
+
+		local loot = getLootCounts()
+		if not loot then return end
+
+		local fedAnything = false
+		for _, foodName in ipairs(FOOD_TYPES) do
+			local totalFood = tonumber(loot[foodName]) or 0
+			local reserve = math.max(0, tonumber(Config.FeedReserve) or 0)
+			local available = totalFood - reserve
+
+			if available > 0 then
+				local ok, _ = callRemote("InventoryService", "requestUseFood", foodName, target.guid, available)
+				if ok then
+					fedAnything = true
+					print(string.format("[FOX FEED] Ня! Скормил %d %s пету %s (%d лвл)", available, foodName, target.id, target.level))
+				end
+				task.wait(0.1)
+			end
+		end
+	end)
 end
 
 -- Сортировка экипированных слаймов по дамагу (от большего к меньшему)
@@ -491,22 +558,28 @@ end
 
 -- Умный AutoFeed: качает самого низкоуровневого
 local function FeedSlimes()
+	warn("[Feed] FeedSlimes called")
+	Notify("Feed Debug", "FeedSlimes called")
 	task.defer(function()
+		warn("[Feed] inside defer")
 		if not DataServiceClient or not InventoryUtils then
-			print("[Feed] FAIL: DataServiceClient or InventoryUtils is nil")
+			warn("[Feed] FAIL: DataServiceClient or InventoryUtils is nil")
 			return
 		end
 
 		local equippedUUIDs = getEquippedSlimeUUIDs()
-		print("[Feed] equipped UUIDs:", #equippedUUIDs)
-		if #equippedUUIDs == 0 then return end
+		warn("[Feed] equipped UUIDs:", #equippedUUIDs)
+		if #equippedUUIDs == 0 then
+			warn("[Feed] no equipped slimes")
+			return
+		end
 
 		local inventory = DataServiceClient:get("inventory") or {}
-		print("[Feed] inventory keys:", table.concat(table.keys(inventory) or {"<no keys>"}, ", ", 1, math.min(5, #(table.keys(inventory) or {}))))
-
 		local loot = getLootCounts()
-		print("[Feed] loot:", loot and "got" or "nil")
-		if not loot then return end
+		if not loot then
+			warn("[Feed] no loot data")
+			return
+		end
 
 		local targetSlimeGUID = nil
 		local minLevel = math.huge
@@ -514,11 +587,11 @@ local function FeedSlimes()
 
 		for _, guid in ipairs(equippedUUIDs) do
 			local rawData = inventory[guid]
-			print(string.format("[Feed] guid=%s rawData=%s", guid, rawData and "yes" or "nil"))
+			warn(string.format("[Feed] guid=%s rawData=%s", guid, rawData and "yes" or "nil"))
 			if rawData then
 				local slimeData = InventoryUtils.getSlimeData(guid, rawData)
 				local currentLevel = slimeData.level or 1
-				print(string.format("[Feed] slime %s level=%d", slimeData.id, currentLevel))
+				warn(string.format("[Feed] slime %s level=%d", slimeData.id, currentLevel))
 
 				if currentLevel < minLevel then
 					minLevel = currentLevel
@@ -529,10 +602,10 @@ local function FeedSlimes()
 		end
 
 		if not targetSlimeGUID then
-			print("[Feed] FAIL: no target slime found")
+			warn("[Feed] FAIL: no target slime found")
 			return
 		end
-		print(string.format("[Feed] target: %s (lvl %d, guid=%s)", targetName, minLevel, targetSlimeGUID))
+		warn(string.format("[Feed] target: %s (lvl %d)", targetName, minLevel))
 
 		local fedCount = 0
 		for _, foodName in ipairs(FOOD_TYPES) do
@@ -540,11 +613,10 @@ local function FeedSlimes()
 			local reserve = math.max(0, tonumber(Config.FeedReserve) or 0)
 			local available = totalFood - reserve
 
-			print(string.format("[Feed] %s: total=%d reserve=%d available=%d", foodName, totalFood, reserve, available))
-
 			if available > 0 then
+				warn(string.format("[Feed] feeding %s %d to %s", foodName, available, targetName))
 				local ok, err = callRemote("InventoryService", "requestUseFood", foodName, targetSlimeGUID, available)
-				print(string.format("[Feed] callRemote(%s) → ok=%s err=%s", foodName, ok, tostring(err)))
+				warn(string.format("[Feed] result ok=%s err=%s", ok, tostring(err)))
 				if ok then
 					fedCount = fedCount + available
 				end
