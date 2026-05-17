@@ -650,24 +650,31 @@ local function getClosestTarget(range)
 end
 
 local function getAutoGunFireRate()
-	if GoopGunUtils and DataServiceClient then
-		local upgrades = DataServiceClient:get("upgrades") or {}
-		return GoopGunUtils.getFireRate(upgrades)
-	end
-	return 0.1
+	local ok, rate = pcall(function()
+		if GoopGunUtils and DataServiceClient then
+			local upgrades = DataServiceClient:get("upgrades")
+			if upgrades then return GoopGunUtils.getFireRate(upgrades) end
+		end
+		return 0.5
+	end)
+	return ok and math.max(rate, 0.05) or 0.5
 end
 
 -- Исправленный AutoGun: берёт цель по КД твоей пушки
 local function AutoGun()
 	local rf = findSlimeGunRemote()
-	if not rf or not DataServiceClient then return end
+	if not rf or not DataServiceClient or not GameplayServiceClient.gameplay then return end
 
-	local upgrades = DataServiceClient:get("upgrades") or {}
-	local range = (GoopGunUtils and GoopGunUtils.getRange(upgrades)) or 100
+	local upgrades = DataServiceClient:get("upgrades")
+	if not upgrades then return end
+
+	local range = GoopGunUtils.getRange(upgrades) or 100
 	local targetId = getClosestTarget(range)
 
 	if targetId then
-		pcall(function() rf:InvokeServer("tryFireSlimeGun", targetId) end)
+		task.spawn(function()
+			pcall(rf.InvokeServer, rf, "tryFireSlimeGun", targetId)
+		end)
 	end
 end
 
@@ -807,7 +814,9 @@ local FEATURES = {
 task.defer(function()
 	pcall(function()
 		while not clientHRP do task.wait(0.5) end
-		task.wait(1)
+		-- Ждем, пока данные профиля реально прилетят от сервера
+		while not (DataServiceClient and DataServiceClient:get("upgrades")) do task.wait(0.5) end
+		task.wait(2)
 		for name, enabled in pairs(State) do
 			if enabled and FEATURES[name] then
 				pcall(function() startFeature(name) end)
