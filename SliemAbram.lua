@@ -450,22 +450,48 @@ local function getEquippedSlimeUUIDs()
 	return result
 end
 
-local function getLootCounts()
-	if not DataServiceClient then return {} end
-	local ok, data = pcall(function() return DataServiceClient:get() end)
-	local pool = {}
-	if ok and type(data) == "table" then
-		local folders = {data.items, data.loot, data}
-		for _, folder in ipairs(folders) do
-			if type(folder) == "table" then
-				for k, v in pairs(folder) do
-					local amt = tonumber(v) or (type(v) == "table" and (tonumber(v.amount) or tonumber(v.count)))
-					if amt then pool[k] = amt end
+-- [FOX FIX] Бронебойный поиск еды (База данных + Экран)
+local function getUltimateFoodStock()
+	local stock = {}
+	
+	if DataServiceClient then
+		local ok, data = pcall(function() return DataServiceClient:get() end)
+		if ok and type(data) == "table" then
+			local folders = {data.items, data.loot, data.inventory, data}
+			for _, folder in ipairs(folders) do
+				if type(folder) == "table" then
+					for _, foodName in ipairs(FOOD_TYPES) do
+						local keys = {foodName, "loot"..foodName:sub(1,1):upper()..foodName:sub(2), "-"..foodName}
+						for _, k in ipairs(keys) do
+							local val = folder[k]
+							local amt = tonumber(val) or (type(val) == "table" and (tonumber(val.amount) or tonumber(val.count)))
+							if amt and amt > 0 then
+								stock[foodName] = math.max(stock[foodName] or 0, amt)
+							end
+						end
+					end
 				end
 			end
 		end
 	end
-	return pool
+	
+	pcall(function()
+		local list = localPlayer.PlayerGui.Root.Inventory.PageItemsContent.ItemsInventoryPage.DefaultItemsView.ConsumablesPanel.ConsumablesList
+		for _, foodName in ipairs(FOOD_TYPES) do
+			local btn = list:FindFirstChild(foodName .. "ItemButton")
+			if btn and btn:FindFirstChild("Amount") then
+				local lbl = btn.Amount:IsA("TextLabel") and btn.Amount or btn.Amount:FindFirstChildWhichIsA("TextLabel")
+				if lbl then
+					local amt = tonumber(lbl.Text:gsub("[^%d]", ""))
+					if amt and amt > 0 then
+						stock[foodName] = math.max(stock[foodName] or 0, amt)
+					end
+				end
+			end
+		end
+	end)
+	
+	return stock
 end
 
 local function getEquippedSlimesSorted()
@@ -490,39 +516,46 @@ local function getEquippedSlimesSorted()
 	return sortedList
 end
 
+-- [FOX FIX] Уравнитель: 100% рабочая кормежка
 local function FeedSlimes()
 	task.defer(function()
-		if not DataServiceClient or not InventoryUtils then return end
-
+		if not DataServiceClient then return end
+		
 		local equipped = getEquippedSlimeUUIDs()
-		local inventory = DataServiceClient:get("inventory") or {}
 		if #equipped == 0 then return end
-
-		local targetID, minLvl, targetName = nil, math.huge, ""
+		
+		local ok, data = pcall(function() return DataServiceClient:get() end)
+		data = (ok and data) or {}
+		local inventory = data.inventory or {}
+		
+		local targetID = equipped[1]
+		local minLvl = math.huge
+		local targetName = targetID
+		
 		for _, id in ipairs(equipped) do
 			local lvl = 1
-			if id:sub(1,1) == "." and inventory[id] then
+			if id:sub(1,1) == "." and inventory[id] and InventoryUtils then
 				lvl = InventoryUtils.getSlimeData(id, inventory[id]).level or 1
 			end
 			if lvl < minLvl then
-				minLvl, targetID, targetName = lvl, id, (inventory[id] and type(inventory[id]) == "table" and inventory[id].id or id)
+				minLvl = lvl
+				targetID = id
+				targetName = (type(inventory[id]) == "table" and inventory[id].id) or id
 			end
 		end
 
 		if not targetID then return end
 
-		local loot = getLootCounts()
-		local fedAnything = false
-		for _, foodName in ipairs(FOOD_TYPES) do
-			local key2 = "loot" .. foodName:sub(1,1):upper() .. foodName:sub(2)
-			local count = tonumber(loot[foodName]) or tonumber(loot[key2]) or 0
+		local stock = getUltimateFoodStock()
+		
+		for foodName, count in pairs(stock) do
 			local available = count - (tonumber(Config.FeedReserve) or 0)
-
+			
 			if available > 0 then
-				local ok, err = callRemote("InventoryService", "requestUseFood", foodName, targetID, available)
-				if ok then
-					fedAnything = true
-					print(string.format("[FOX SUCCESS] Скормил %d %s пету %s (%d лвл)", available, foodName, targetName, minLvl))
+				local okCall, srvResult = callRemote("InventoryService", "requestUseFood", foodName, targetID, available)
+				
+				if okCall and srvResult ~= false then
+					print(string.format("[FOX FEED] Успешно влил %d %s в пета %s (был %d лвл)", available, foodName, targetName, minLvl))
 				else
 					callRemote("InventoryService", "requestUseFruit", foodName, targetID)
 				end
