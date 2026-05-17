@@ -606,15 +606,18 @@ end
 
 -- Очищенный поиск ремОута без лишнего спама
 local slimeGunRemote = nil
+local slimeGunRemote = nil
 local function findSlimeGunRemote()
-	if slimeGunRemote and slimeGunRemote.Parent then
-		return slimeGunRemote
-	end
-	local networkerIdx = ReplicatedStorage.Packages._Index
-	if not networkerIdx then return nil end
-	for _, child in ipairs(networkerIdx:GetChildren()) do
+	if slimeGunRemote and slimeGunRemote.Parent then return slimeGunRemote end
+	
+	local pkgs = ReplicatedStorage:FindFirstChild("Packages")
+	local idx = pkgs and pkgs:FindFirstChild("_Index")
+	if not idx then return nil end
+	
+	for _, child in ipairs(idx:GetChildren()) do
 		if child.Name:find("networker") then
-			local remotes = child:FindFirstChild("networker") and child.networker:FindFirstChild("_remotes")
+			local nw = child:FindFirstChild("networker")
+			local remotes = nw and nw:FindFirstChild("_remotes")
 			if remotes then
 				local svc = remotes:FindFirstChild("SlimeGunService")
 				local rf = svc and svc:FindFirstChild("RemoteFunction")
@@ -653,11 +656,18 @@ local function getAutoGunFireRate()
 	local ok, rate = pcall(function()
 		if GoopGunUtils and DataServiceClient then
 			local upgrades = DataServiceClient:get("upgrades")
-			if upgrades then return GoopGunUtils.getFireRate(upgrades) end
+			if upgrades then 
+				local r = GoopGunUtils.getFireRate(upgrades)
+				if type(r) == "number" then return r end
+			end
 		end
 		return 0.5
 	end)
-	return ok and math.max(rate, 0.05) or 0.5
+	
+	if ok and type(rate) == "number" then
+		return math.max(rate, 0.05)
+	end
+	return 0.5
 end
 
 -- Исправленный AutoGun: берёт цель по КД твоей пушки
@@ -665,8 +675,8 @@ local function AutoGun()
 	local rf = findSlimeGunRemote()
 	if not rf or not DataServiceClient or not GameplayServiceClient.gameplay then return end
 
-	local upgrades = DataServiceClient:get("upgrades")
-	if not upgrades then return end
+	local ok, upgrades = pcall(function() return DataServiceClient:get("upgrades") end)
+	if not (ok and type(upgrades) == "table") then return end
 
 	local range = GoopGunUtils.getRange(upgrades) or 100
 	local targetId = getClosestTarget(range)
@@ -814,8 +824,16 @@ local FEATURES = {
 task.defer(function()
 	pcall(function()
 		while not clientHRP do task.wait(0.5) end
-		-- Ждем, пока данные профиля реально прилетят от сервера
-		while not (DataServiceClient and DataServiceClient:get("upgrades")) do task.wait(0.5) end
+		
+		-- Железобетонный поллинг. Если :get() крашится, цикл идёт дальше, пока не дождёмся таблицы.
+		while true do
+			local ok, res = pcall(function() 
+				return DataServiceClient and DataServiceClient:get("upgrades") 
+			end)
+			if ok and type(res) == "table" then break end
+			task.wait(1)
+		end
+		
 		task.wait(2)
 		for name, enabled in pairs(State) do
 			if enabled and FEATURES[name] then
