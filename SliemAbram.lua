@@ -820,29 +820,6 @@ local FEATURES = {
 	},
 }
 
--- ===== AUTOLOAD: автозапуск сохранённых фич =====
-task.defer(function()
-	pcall(function()
-		while not clientHRP do task.wait(0.5) end
-		
-		-- Железобетонный поллинг. Если :get() крашится, цикл идёт дальше, пока не дождёмся таблицы.
-		while true do
-			local ok, res = pcall(function() 
-				return DataServiceClient and DataServiceClient:get("upgrades") 
-			end)
-			if ok and type(res) == "table" then break end
-			task.wait(1)
-		end
-		
-		task.wait(2)
-		for name, enabled in pairs(State) do
-			if enabled and FEATURES[name] then
-				pcall(function() startFeature(name) end)
-			end
-		end
-	end)
-end)
-
 -- ==================== FEATURE MANAGEMENT ====================
 local function stopFeature(name)
 	local cfg = FEATURES[name]
@@ -1686,3 +1663,27 @@ end
 if not hasFS then
 	Notify("AbramSliem", "Note: executor lacks file I/O — config will not persist.")
 end
+
+-- ===== AUTOLOAD: автозапуск сохранённых фич (в конце — чтобы все функции были видны) =====
+task.defer(function()
+	pcall(function()
+		while not clientHRP do task.wait(0.5) end
+
+		local waitTime = 0
+		while waitTime < 15 do
+			local ok, res = pcall(function()
+				return DataServiceClient and DataServiceClient:get("upgrades")
+			end)
+			if ok and type(res) == "table" then break end
+			waitTime = waitTime + 1
+			task.wait(1)
+		end
+
+		task.wait(2)
+		for name, enabled in pairs(State) do
+			if enabled and FEATURES[name] then
+				pcall(function() startFeature(name) end)
+			end
+		end
+	end)
+end)
