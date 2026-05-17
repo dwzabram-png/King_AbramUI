@@ -461,7 +461,7 @@ end
 local function getLootCounts()
 	if not DataServiceClient then return nil end
 	local ok, loot = pcall(function()
-		return DataServiceClient:get("items") or DataServiceClient:get("loot")
+		return DataServiceClient:get({"loot"}) or DataServiceClient:get({"items"})
 	end)
 	return (ok and loot) or nil
 end
