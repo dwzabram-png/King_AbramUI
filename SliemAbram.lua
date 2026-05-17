@@ -123,7 +123,6 @@ local function loadConfig()
 		local raw = readfile(CONFIG_FILE)
 		local ok, decoded = pcall(function() return HttpService:JSONDecode(raw) end)
 		if ok and type(decoded) == "table" then
-			-- Загружаем Config
 			if decoded.Config and type(decoded.Config) == "table" then
 				for k, v in pairs(decoded.Config) do
 					if DEFAULT_CONFIG[k] ~= nil and type(v) == type(DEFAULT_CONFIG[k]) then
@@ -131,7 +130,6 @@ local function loadConfig()
 					end
 				end
 			end
-			-- Загружаем State
 			if decoded.State and type(decoded.State) == "table" then
 				for k, v in pairs(decoded.State) do
 					if State[k] ~= nil and type(v) == "boolean" then
@@ -139,20 +137,17 @@ local function loadConfig()
 					end
 				end
 			end
+			if not decoded.Config then
+				for k, v in pairs(decoded) do
+					if DEFAULT_CONFIG[k] ~= nil and type(v) == type(DEFAULT_CONFIG[k]) then
+						Config[k] = v
+					end
+				end
+			end
 		end
 	end)
 end
 loadConfig()
-
--- ===== AUTOLOAD: автозапуск сохранённых фич =====
-task.defer(function()
-	task.wait(2)
-	for name, enabled in pairs(State) do
-		if enabled and FEATURES[name] then
-			startFeature(name)
-		end
-	end
-end)
 
 -- Динамический поиск Remotes (проверяет ВСЕ версии networker) с кэшем
 local function getAllRemotesFolders()
@@ -807,6 +802,19 @@ local FEATURES = {
 		end
 	},
 }
+
+-- ===== AUTOLOAD: автозапуск сохранённых фич =====
+task.defer(function()
+	pcall(function()
+		while not clientHRP do task.wait(0.5) end
+		task.wait(1)
+		for name, enabled in pairs(State) do
+			if enabled and FEATURES[name] then
+				pcall(function() startFeature(name) end)
+			end
+		end
+	end)
+end)
 
 -- ==================== FEATURE MANAGEMENT ====================
 local function stopFeature(name)
