@@ -458,51 +458,28 @@ end
 -- Fox "Equalizer" Debug Edition
 
 -- 1. Исправляем получение еды (юзаем DataServiceClient, который ты объявил в начале)
+-- Fox "Deep Search" Feed Fix
+
 local function getLootCounts()
 	if not DataServiceClient then return nil end
-	local ok, loot = pcall(function()
-		return DataServiceClient:get({"loot"}) or DataServiceClient:get({"items"})
+	local ok, data = pcall(function()
+		return DataServiceClient:get()
 	end)
-	return (ok and loot) or nil
-end
-
--- 2. Исправляем сортировку (убираем client, ставим DataServiceClient)
-local function getEquippedSlimesSorted()
-	local equippedUUIDs = getEquippedSlimeUUIDs()
-	if not DataServiceClient then return {} end
-	
-	local inventory = DataServiceClient:get("inventory") or {}
-	local sortedList = {}
-
-	for _, guid in ipairs(equippedUUIDs) do
-		local rawData = inventory[guid]
-		if rawData and InventoryUtils then
-			local slimeData = InventoryUtils.getSlimeData(guid, rawData)
-			local stats = InventoryUtils.getSlimeStatsFromData(slimeData)
-			table.insert(sortedList, {
-				guid = guid,
-				damage = stats.damage or 0,
-				level = slimeData.level or 1,
-				id = slimeData.id
-			})
-		end
+	if ok and type(data) == "table" then
+		return data.items or data.loot or data
 	end
-	
-	table.sort(sortedList, function(a, b) return a.damage > b.damage end)
-	return sortedList
+	return nil
 end
 
--- 3. САМА КОРМЁЖКА (Обновлённая логика)
 local function FeedSlimes()
 	task.defer(function()
 		if not DataServiceClient or not InventoryUtils then return end
-		
+
 		local sorted = getEquippedSlimesSorted()
 		if #sorted == 0 then return end
-		
+
 		local target = sorted[1]
 		local minLvl = math.huge
-		
 		for _, s in ipairs(sorted) do
 			if s.level < minLvl then
 				minLvl = s.level
@@ -510,20 +487,26 @@ local function FeedSlimes()
 			end
 		end
 
-		local loot = getLootCounts()
-		if not loot then return end
+		local foodPool = getLootCounts()
+		if not foodPool then
+			print("[FOX FEED] Ошибка: Не удалось получить таблицу еды!")
+			return
+		end
 
 		local fedAnything = false
 		for _, foodName in ipairs(FOOD_TYPES) do
-			local totalFood = tonumber(loot[foodName]) or 0
+			local amount = tonumber(foodPool[foodName]) or tonumber(foodPool["loot" .. foodName:sub(1,1):upper() .. foodName:sub(2)]) or 0
 			local reserve = math.max(0, tonumber(Config.FeedReserve) or 0)
-			local available = totalFood - reserve
+			local available = amount - reserve
 
 			if available > 0 then
-				local ok, _ = callRemote("InventoryService", "requestUseFood", foodName, target.guid, available)
+				print(string.format("[FOX FEED] Пробую скормить %d %s пету %s", available, foodName, target.id))
+				local ok, res = callRemote("InventoryService", "requestUseFood", foodName, target.guid, available)
 				if ok then
 					fedAnything = true
-					print(string.format("[FOX FEED] Ня! Скормил %d %s пету %s (%d лвл)", available, foodName, target.id, target.level))
+					print(string.format("[FOX FEED] Успех! %s теперь сыт. :3", target.id))
+				else
+					print("[FOX FEED] Сервер отклонил еду:", tostring(res))
 				end
 				task.wait(0.1)
 			end
@@ -547,6 +530,7 @@ local function getEquippedSlimesSorted()
 			table.insert(sortedList, {
 				guid = guid,
 				damage = stats.damage or 0,
+				level = slimeData.level or 1,
 				id = slimeData.id
 			})
 		end
