@@ -437,65 +437,62 @@ end
 -- [AUTO FEED] Кормит слаймов фруктами поровну
 local FOOD_TYPES = {"apple", "grapes", "banana", "pizza", "drumstick", "chicken", "watermelon", "cherries", "carrot"}
 
--- Получение UUID экипированных слаймов через DataService
 local function getEquippedSlimeUUIDs()
 	if not DataServiceClient then return {} end
-	local ok, uuids = pcall(function()
-		local equipped = DataServiceClient:get({"equipped"})
-		if not equipped or type(equipped) ~= "table" then return nil end
-		local result = {}
+	local ok, equipped = pcall(function() return DataServiceClient:get("equipped") end)
+	local result = {}
+	if ok and type(equipped) == "table" then
 		for i = 1, 8 do
-			local val = equipped[i]
-			if val and type(val) == "string" and val ~= "" then
-				table.insert(result, val)
-			end
+			local id = equipped[i] or equipped[tostring(i)]
+			if id and id ~= "" then table.insert(result, id) end
 		end
-		return result
-	end)
-	return (ok and uuids) or {}
+	end
+	return result
 end
 
--- Fox "Equalizer" Debug Edition
-
--- 1. Исправляем получение еды (юзаем DataServiceClient, который ты объявил в начале)
--- Fox "Deep Search" Feed Fix
-
 local function getLootCounts()
-	if not DataServiceClient then return nil end
-	local ok, data = pcall(function() return DataServiceClient:get() end)
-	if ok and type(data) == "table" then
-		local pool = {}
-		if data.loot then for k,v in pairs(data.loot) do pool[k] = v end end
-		if data.items then for k,v in pairs(data.items) do pool[k] = v end end
-		return pool
+	if not DataServiceClient then return {} end
+	local data = DataServiceClient:get() or {}
+	local pool = {}
+	local tabs = {data.loot, data.items, data}
+	for _, t in ipairs(tabs) do
+		if type(t) == "table" then
+			for k, v in pairs(t) do
+				local amt = tonumber(v) or (type(v) == "table" and tonumber(v.amount))
+				if amt then pool[k] = amt end
+			end
+		end
 	end
-	return nil
+	return pool
 end
 
 local function FeedSlimes()
 	task.defer(function()
-		if not DataServiceClient or not InventoryUtils then return end
+		if not DataServiceClient then return end
 
 		local equipped = getEquippedSlimeUUIDs()
-		local inventory = DataServiceClient:get("inventory") or {}
 		if #equipped == 0 then return end
 
-		local targetGUID, minLvl, targetName = nil, math.huge, ""
-		for _, guid in ipairs(equipped) do
-			local rawData = inventory[guid]
-			if rawData then
-				local slimeData = InventoryUtils.getSlimeData(guid, rawData)
-				local lvl = slimeData.level or 1
-				if lvl < minLvl then
-					minLvl, targetGUID, targetName = lvl, guid, slimeData.id
-				end
+		local inventory = DataServiceClient:get("inventory") or {}
+
+		local targetID = equipped[1]
+		local minLvl = math.huge
+
+		for _, id in ipairs(equipped) do
+			local lvl = 1
+			if id:sub(1,1) == "." and inventory[id] and InventoryUtils then
+				local slimeData = InventoryUtils.getSlimeData(id, inventory[id])
+				lvl = slimeData.level or 1
+			end
+
+			if lvl < minLvl then
+				minLvl = lvl
+				targetID = id
 			end
 		end
 
-		if not targetGUID then return end
-
 		local loot = getLootCounts()
-		if not loot then return end
+		local fedAnything = false
 
 		for _, foodName in ipairs(FOOD_TYPES) do
 			local key2 = "loot" .. foodName:sub(1,1):upper() .. foodName:sub(2)
@@ -503,9 +500,12 @@ local function FeedSlimes()
 			local available = total - (tonumber(Config.FeedReserve) or 0)
 
 			if available > 0 then
-				local ok, _ = callRemote("InventoryService", "requestUseFood", foodName, targetGUID, available)
+				local ok, err = callRemote("InventoryService", "requestUseFood", foodName, targetID, available)
 				if ok then
-					print(string.format("[FOX FEED] Подтянул %s до %d лвл (влил %d еды)", targetName, minLvl, available))
+					fedAnything = true
+					print(string.format("[FOX FEED] Скормил %d %s пету %s (Lvl: %s)", available, foodName, targetID, tostring(minLvl)))
+				else
+					callRemote("InventoryService", "requestUseFruit", foodName, targetID)
 				end
 				task.wait(0.1)
 			end
