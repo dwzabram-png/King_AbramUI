@@ -108,7 +108,11 @@ local CONFIG_FILE = "AbramSliem_config.json"
 local function saveConfig()
 	if not hasFS then return end
 	pcall(function()
-		writefile(CONFIG_FILE, HttpService:JSONEncode(Config))
+		local saveData = {
+			Config = Config,
+			State = State
+		}
+		writefile(CONFIG_FILE, HttpService:JSONEncode(saveData))
 	end)
 end
 
@@ -119,15 +123,36 @@ local function loadConfig()
 		local raw = readfile(CONFIG_FILE)
 		local ok, decoded = pcall(function() return HttpService:JSONDecode(raw) end)
 		if ok and type(decoded) == "table" then
-			for k, v in pairs(decoded) do
-				if DEFAULT_CONFIG[k] ~= nil and type(v) == type(DEFAULT_CONFIG[k]) then
-					Config[k] = v
+			-- Загружаем Config
+			if decoded.Config and type(decoded.Config) == "table" then
+				for k, v in pairs(decoded.Config) do
+					if DEFAULT_CONFIG[k] ~= nil and type(v) == type(DEFAULT_CONFIG[k]) then
+						Config[k] = v
+					end
+				end
+			end
+			-- Загружаем State
+			if decoded.State and type(decoded.State) == "table" then
+				for k, v in pairs(decoded.State) do
+					if State[k] ~= nil and type(v) == "boolean" then
+						State[k] = v
+					end
 				end
 			end
 		end
 	end)
 end
 loadConfig()
+
+-- ===== AUTOLOAD: автозапуск сохранённых фич =====
+task.defer(function()
+	task.wait(2)
+	for name, enabled in pairs(State) do
+		if enabled and FEATURES[name] then
+			startFeature(name)
+		end
+	end
+end)
 
 -- Динамический поиск Remotes (проверяет ВСЕ версии networker) с кэшем
 local function getAllRemotesFolders()
@@ -549,13 +574,11 @@ local function FeedSlimes()
 		local stock = getUltimateFoodStock()
 		
 		for foodName, count in pairs(stock) do
-			local available = count - (tonumber(Config.FeedReserve) or 0)
-			
-			if available > 0 then
-				local okCall, srvResult = callRemote("InventoryService", "requestUseFood", foodName, targetID, available)
+			if count > 0 then
+				local okCall, srvResult = callRemote("InventoryService", "requestUseFood", foodName, targetID, count)
 				
 				if okCall and srvResult ~= false then
-					print(string.format("[FOX FEED] Успешно влил %d %s в пета %s (был %d лвл)", available, foodName, targetName, minLvl))
+					print(string.format("[FOX FEED] Успешно влил %d %s в пета %s (был %d лвл)", count, foodName, targetName, minLvl))
 				else
 					callRemote("InventoryService", "requestUseFruit", foodName, targetID)
 				end
@@ -703,16 +726,21 @@ local FEATURES = {
 			if not State.AutoFarm or not clientHRP then return end
 			local lootFolder = workspace:FindFirstChild("Loot")
 			if not lootFolder then return end
-			local baseCF = clientHRP.CFrame
+			
+			local playerPos = clientHRP.Position
+			local magnetRange = 120
+			local pullStrength = 80
+			
 			for _, drop in ipairs(lootFolder:GetChildren()) do
 				if not State.AutoFarm then break end
 				for _, child in ipairs(drop:GetChildren()) do
-					if child:IsA("BasePart") and child.Name ~= "LootHighlight" then
-						if Config.AntiDetectJitter then
-							local jx, jy, jz = (math.random()-0.5)*1.2, (math.random()-0.5)*0.6, (math.random()-0.5)*1.2
-							child.CFrame = baseCF + Vector3.new(jx, jy, jz)
-						else
-							child.CFrame = baseCF
+					if child:IsA("BasePart") and child.Name ~= "LootHighlight" and child.Anchored == false then
+						local dist = (child.Position - playerPos).Magnitude
+						if dist < magnetRange and dist > 3 then
+							local dir = (playerPos - child.Position).Unit
+							child.AssemblyLinearVelocity = dir * pullStrength
+						elseif dist <= 3 then
+							child.AssemblyLinearVelocity = Vector3.zero
 						end
 					end
 				end
@@ -833,6 +861,7 @@ end
 -- ==================== LOGIC ====================
 local function toggleFeature(name, value)
 	State[name] = value
+	saveConfig()
 	Notify(name, value and "Enabled" or "Disabled")
 	if value then
 		startFeature(name)
