@@ -450,25 +450,6 @@ local function getEquippedSlimeUUIDs()
 	return result
 end
 
--- [FOX FIX] Ультимативный поиск еды (склеиваем все таблицы в одну)
-local function getLootCounts()
-	if not DataServiceClient then return {} end
-	local ok, data = pcall(function() return DataServiceClient:get() end)
-	local pool = {}
-	if ok and type(data) == "table" then
-		local folders = {data.items, data.loot, data}
-		for _, folder in ipairs(folders) do
-			if type(folder) == "table" then
-				for k, v in pairs(folder) do
-					local amt = tonumber(v) or (type(v) == "table" and (tonumber(v.amount) or tonumber(v.count)))
-					if amt then pool[k] = amt end
-				end
-			end
-		end
-	end
-	return pool
-end
-
 -- [FOX FIX] Сортировка по дамагу (нужна для AutoEquip)
 local function getEquippedSlimesSorted()
 	local equippedUUIDs = getEquippedSlimeUUIDs()
@@ -492,7 +473,7 @@ local function getEquippedSlimesSorted()
 	return sortedList
 end
 
--- [FOX FIX] Уравнитель (одна рабочая функция вместо двух косячных)
+-- [FOX FIX] Идеальный Уравнитель + Правильный поиск еды
 local function FeedSlimes()
 	task.defer(function()
 		if not DataServiceClient or not InventoryUtils then return end
@@ -508,17 +489,19 @@ local function FeedSlimes()
 				lvl = InventoryUtils.getSlimeData(id, inventory[id]).level or 1
 			end
 			if lvl < minLvl then
-				minLvl, targetID, targetName = lvl, id, (inventory[id] and inventory[id].id or id)
+				minLvl, targetID, targetName = lvl, id, (inventory[id] and type(inventory[id]) == "table" and inventory[id].id or id)
 			end
 		end
 
 		if not targetID then return end
 
-		local loot = getLootCounts()
 		local fedAnything = false
 		for _, foodName in ipairs(FOOD_TYPES) do
-			local key2 = "loot" .. foodName:sub(1,1):upper() .. foodName:sub(2)
-			local count = tonumber(loot[foodName]) or tonumber(loot[key2]) or 0
+			local count = tonumber(inventory[foodName])
+				or tonumber(inventory["-" .. foodName])
+				or tonumber(inventory["loot" .. foodName:sub(1,1):upper() .. foodName:sub(2)])
+				or 0
+
 			local available = count - (tonumber(Config.FeedReserve) or 0)
 
 			if available > 0 then
