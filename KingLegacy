@@ -16,7 +16,6 @@ local KE = Fu:WaitForChild("KenEvent")
 local auto = true
 local lastF = ""
 local startCF = CFrame.new(10959.46, 141.89, 1252.01)
-local tRoom = false
 local lHeal = 0
 local lSkill = 0
 
@@ -68,12 +67,7 @@ local function heal()
     end
 end
 
--- Проверка комнаты (старый способ)
-local function isR()
-    return workspace:FindFirstChild("KRoom"..L.Name) or workspace:FindFirstChild("OpeRoom"..L.Name) ~= nil
-end
-
--- Каст (старый способ через Down/Up)
+-- Каст (Down/Up)
 local function fire(name, cf)
     task.spawn(function()
         pcall(function() SA:InvokeServer(name, {["Type"] = "Down", ["MouseHit"] = cf}) end)
@@ -81,20 +75,7 @@ local function fire(name, cf)
     end)
 end
 
--- Моментальная комната
-local function togR(cf)
-    if tRoom then return end
-    tRoom = true
-    local c = CFrame.new(cf.Position)
-    task.spawn(function()
-        pcall(function() SA:InvokeServer("DF_OpOp_Z", {["Type"] = "Down", ["MouseHit"] = c}) end)
-        pcall(function() SA:InvokeServer("DF_OpOp_Z", {["Type"] = "Up", ["MouseHit"] = c}) end)
-        task.wait(1)
-        tRoom = false
-    end)
-end
-
--- Жесткий флай (Анти-Дергание)
+-- Жесткий флай
 RS.Heartbeat:Connect(function()
     if auto and L.Character and L.Character:FindFirstChild("HumanoidRootPart") then
         local hrp = L.Character.HumanoidRootPart
@@ -112,12 +93,15 @@ task.spawn(function()
     while auto do
         task.wait(2)
         pcall(function() AE:FireServer() end)
-        local res = L.PlayerGui:FindFirstChild("DungeonResult")
-        if (res and res.Enabled) or (not L.PlayerGui:FindFirstChild("DungeonUI") and (L.Character.HumanoidRootPart.Position - startCF.Position).Magnitude > 1000) then
-            L.Character.HumanoidRootPart.CFrame = startCF
-            task.wait(2)
-            pcall(function() SD:InvokeServer("Hard") end)
-            task.wait(5)
+        if L.Character and L.Character:FindFirstChild("HumanoidRootPart") then
+            local res = L.PlayerGui:FindFirstChild("DungeonResult")
+            local dist = (L.Character.HumanoidRootPart.Position - startCF.Position).Magnitude
+            if (res and res.Enabled) or (not L.PlayerGui:FindFirstChild("DungeonUI") and dist > 1000) then
+                L.Character.HumanoidRootPart.CFrame = startCF
+                task.wait(2)
+                pcall(function() SD:InvokeServer("Hard") end)
+                task.wait(5)
+            end
         end
     end
 end)
@@ -146,25 +130,16 @@ task.spawn(function()
                     local isB = mob.Humanoid.MaxHealth > 1000000
                     
                     hrp.CFrame = mH * CFrame.new(0, isB and 11 or 15, 0) * CFrame.Angles(math.rad(-90), 0, 0)
-                    
-                    if not isR() then
-                        togR(mH)
-                        task.wait(1)
-                    else
-                        -- M1 всегда
-                        pcall(function() SA:InvokeServer("SW_Kioru V2_M1", {["MouseHit"] = mH}) end)
-                        
-                        -- Скиллы (СТАРЫЙ СПОСОБ НАЗВАНИЙ)
-                        if tick() - lSkill >= (isB and 0.5 or 1) then
-                            fire("SW_Kioru V2_Z", mH)
-                            fire("SW_Kioru V2_X", mH)
-                            if isR() then
-                                fire("DF_OpOp_X", mH)
-                                fire("DF_OpOp_C", mH)
-                                fire("DF_OpOp_V", mH)
-                            end
-                            lSkill = tick()
-                        end
+
+                    -- M1 + скиллы Dawnbreaker
+                    if tick() - lSkill >= (isB and 0.5 or 1) then
+                        fire("SW_Dawnbreaker_Z", mH)
+                        fire("SW_Dawnbreaker_X", mH)
+                        fire("DF_MagmaMagma_Z", mH)
+                        fire("DF_MagmaMagma_X", mH)
+                        fire("DF_MagmaMagma_C", mH)
+                        fire("DF_MagmaMagma_V", mH)
+                        lSkill = tick()
                     end
                 end
             end
