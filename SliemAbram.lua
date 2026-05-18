@@ -743,20 +743,21 @@ local FEATURES = {
 			local magnetRange = 120
 			local pullStrength = 80
 			
-			for _, drop in ipairs(lootFolder:GetChildren()) do
-				if not State.AutoFarm then break end
-				for _, child in ipairs(drop:GetChildren()) do
-					if child:IsA("BasePart") and child.Name ~= "LootHighlight" and child.Anchored == false then
-						local dist = (child.Position - playerPos).Magnitude
-						if dist < magnetRange and dist > 3 then
-							local dir = (playerPos - child.Position).Unit
-							child.AssemblyLinearVelocity = dir * pullStrength
-						elseif dist <= 3 then
-							child.AssemblyLinearVelocity = Vector3.zero
-						end
+		for _, drop in ipairs(lootFolder:GetChildren()) do
+			if not State.AutoFarm then break end
+			for _, child in ipairs(drop:GetChildren()) do
+				if child:IsA("BasePart") and child.Name ~= "LootHighlight" then
+					if child.Anchored then child.Anchored = false end
+					local dist = (child.Position - playerPos).Magnitude
+					if dist < magnetRange and dist > 3 then
+						local dir = (playerPos - child.Position).Unit
+						child.AssemblyLinearVelocity = dir * pullStrength
+					elseif dist <= 3 then
+						child.AssemblyLinearVelocity = Vector3.zero
 					end
 				end
 			end
+		end
 		end
 	},
 	AutoPotions = {
