@@ -745,23 +745,12 @@ local FEATURES = {
 			
 		for _, drop in ipairs(lootFolder:GetChildren()) do
 			if not State.AutoFarm then break end
-			local root = drop:FindFirstChild("Root")
-			if root and root:IsA("BasePart") then
-				local dist = (root.Position - playerPos).Magnitude
+			local part = drop:FindFirstChildWhichIsA("BasePart")
+			if part then
+				local dist = (part.Position - playerPos).Magnitude
 				if dist < magnetRange then
-					if dist > 3 then
-						if root.Anchored then root.Anchored = false end
-						root.CanCollide = true
-						local dir = (playerPos - root.Position).Unit
-						root.AssemblyLinearVelocity = Vector3.new(
-							dir.X * pullStrength,
-							math.max(dir.Y * pullStrength, pullStrength * 0.5),
-							dir.Z * pullStrength
-						)
-					else
-						root.Anchored = false
-						root.CFrame = CFrame.new(playerPos + Vector3.new(0, 2, 0))
-					end
+					part.Anchored = false
+					part.AssemblyLinearVelocity = (playerPos + Vector3.new(0, 2, 0) - part.Position).Unit * (pullStrength + dist * 0.3)
 				end
 			end
 		end
