@@ -740,28 +740,40 @@ local FEATURES = {
 			if not lootFolder then return end
 			
 			local playerPos = clientHRP.Position
-			local magnetRange = 150 -- Радиус сбора (можешь увеличить, если античит не ебет)
+			local magnetRange = 150 -- радиус подсоса
 			
 			for _, drop in ipairs(lootFolder:GetChildren()) do
 				if not State.AutoFarm then break end
 				
-				-- Ищем именно Root, так как на нем висит TouchInterest
 				local rootPart = drop:FindFirstChild("Root") or drop:FindFirstChildWhichIsA("BasePart")
 				if rootPart then
 					local dist = (rootPart.Position - playerPos).Magnitude
 					if dist < magnetRange then
-						-- Вырубаем коллизию, чтобы лут не отлетал от перса
+						-- Оффаем физику и телепортируем к себе
 						rootPart.CanCollide = false
-						-- Зануляем ускорение, чтобы его не пидорасило в пространстве
 						rootPart.AssemblyLinearVelocity = Vector3.zero
-						-- Телепортируем прямо в центр игрока нахуй
 						rootPart.CFrame = clientHRP.CFrame
 						
-						-- Если экзекутор поддерживает симуляцию касания - ебашим напрямую
+						-- 1. Сбор касанием (стандартный лут)
 						if firetouchinterest and rootPart:FindFirstChild("TouchInterest") then
-							-- 0 = коснулся, 1 = перестал касаться
 							firetouchinterest(clientHRP, rootPart, 0)
 							firetouchinterest(clientHRP, rootPart, 1)
+						end
+						
+						-- 2. Сбор на кнопку "E" (ProximityPrompt)
+						local prompt = drop:FindFirstChildWhichIsA("ProximityPrompt", true)
+						if prompt then
+							if fireproximityprompt then
+								-- Если экзекутор норм - насилуем промпт инстантно
+								fireproximityprompt(prompt)
+							else
+								-- Если экзекутор бомжарский - асинхронно эмулируем зажатие клавиши
+								task.spawn(function()
+									prompt:InputHoldBegin()
+									task.wait(prompt.HoldDuration or 0)
+									prompt:InputHoldEnd()
+								end)
+							end
 						end
 					end
 				end
