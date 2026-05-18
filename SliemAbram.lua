@@ -748,12 +748,20 @@ local FEATURES = {
 			for _, child in ipairs(drop:GetChildren()) do
 				if child:IsA("BasePart") and child.Name ~= "LootHighlight" then
 					if child.Anchored then child.Anchored = false end
+					child.CanCollide = true
 					local dist = (child.Position - playerPos).Magnitude
-					if dist < magnetRange and dist > 3 then
-						local dir = (playerPos - child.Position).Unit
-						child.AssemblyLinearVelocity = dir * pullStrength
-					elseif dist <= 3 then
-						child.AssemblyLinearVelocity = Vector3.zero
+					if dist < magnetRange then
+						if dist > 2 then
+							local dir = (playerPos - child.Position).Unit
+							local lift = pullStrength * 0.5
+							child.AssemblyLinearVelocity = Vector3.new(
+								dir.X * pullStrength,
+								math.max(dir.Y * pullStrength, lift),
+								dir.Z * pullStrength
+							)
+						else
+							child.CFrame = CFrame.new(playerPos + Vector3.new(0, 1.5, 0))
+						end
 					end
 				end
 			end
