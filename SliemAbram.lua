@@ -740,20 +740,32 @@ local FEATURES = {
 			if not lootFolder then return end
 			
 			local playerPos = clientHRP.Position
-			local magnetRange = 120
-			local pullStrength = 80
+			local magnetRange = 150 -- Радиус сбора (можешь увеличить, если античит не ебет)
 			
-		for _, drop in ipairs(lootFolder:GetChildren()) do
-			if not State.AutoFarm then break end
-			local part = drop:FindFirstChildWhichIsA("BasePart")
-			if part then
-				local dist = (part.Position - playerPos).Magnitude
-				if dist < magnetRange then
-					part.Anchored = false
-					part.AssemblyLinearVelocity = (playerPos + Vector3.new(0, 2, 0) - part.Position).Unit * (pullStrength + dist * 0.3)
+			for _, drop in ipairs(lootFolder:GetChildren()) do
+				if not State.AutoFarm then break end
+				
+				-- Ищем именно Root, так как на нем висит TouchInterest
+				local rootPart = drop:FindFirstChild("Root") or drop:FindFirstChildWhichIsA("BasePart")
+				if rootPart then
+					local dist = (rootPart.Position - playerPos).Magnitude
+					if dist < magnetRange then
+						-- Вырубаем коллизию, чтобы лут не отлетал от перса
+						rootPart.CanCollide = false
+						-- Зануляем ускорение, чтобы его не пидорасило в пространстве
+						rootPart.AssemblyLinearVelocity = Vector3.zero
+						-- Телепортируем прямо в центр игрока нахуй
+						rootPart.CFrame = clientHRP.CFrame
+						
+						-- Если экзекутор поддерживает симуляцию касания - ебашим напрямую
+						if firetouchinterest and rootPart:FindFirstChild("TouchInterest") then
+							-- 0 = коснулся, 1 = перестал касаться
+							firetouchinterest(clientHRP, rootPart, 0)
+							firetouchinterest(clientHRP, rootPart, 1)
+						end
+					end
 				end
 			end
-		end
 		end
 	},
 	AutoPotions = {
