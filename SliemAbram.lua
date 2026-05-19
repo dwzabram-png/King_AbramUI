@@ -1051,7 +1051,7 @@ enterBtn.Parent = keyCard
 addCorner(enterBtn, 8)
 
 task.spawn(function()
-	tw(keyOverlay, {BackgroundTransparency = 0.3}, TweenInfo.new(0.5))
+	tw(keyOverlay, {BackgroundTransparency = 1}, TweenInfo.new(0.5))
 	tw(keyCard, {Position = UDim2.new(0.5, 0, 0.5, 0), BackgroundTransparency = 0}, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out))
 	tw(cardStroke, {Transparency = 0}, TweenInfo.new(0.6))
 	tw(title, {TextTransparency = 0}, TweenInfo.new(0.5))
