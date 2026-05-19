@@ -963,232 +963,163 @@ screenGui.Name = "AS_" .. HttpService:GenerateGUID(false):sub(1,8)
 screenGui.ResetOnSpawn = false
 screenGui.Parent = (getHui and getHui()) or CoreGui
 
--- ===== KEY SYSTEM ====================
+-- ===== KEY SYSTEM (SMOOTH & YIELD) =====
+local keyAuthenticated = false
 local DISCORD_LINK = "https://discord.gg/9SK9sYty"
+local CORRECT_KEY = "AbramClient"
 
 local keyOverlay = Instance.new("Frame")
 keyOverlay.Size = UDim2.new(1, 0, 1, 0)
 keyOverlay.BackgroundColor3 = Color3.fromRGB(9, 9, 11)
-keyOverlay.BackgroundTransparency = 0
+keyOverlay.BackgroundTransparency = 1
 keyOverlay.BorderSizePixel = 0
 keyOverlay.Parent = screenGui
 keyOverlay.ZIndex = 100
 
-local keyShade = Instance.new("Frame")
-keyShade.Size = UDim2.new(1, 0, 1, 0)
-keyShade.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-keyShade.BackgroundTransparency = 1
-keyShade.BorderSizePixel = 0
-keyShade.Parent = keyOverlay
-
 local keyCard = Instance.new("Frame")
-keyCard.Size = UDim2.new(0, 320, 0, 200)
+keyCard.Size = UDim2.new(0, 320, 0, 170)
 keyCard.AnchorPoint = Vector2.new(0.5, 0.5)
-keyCard.Position = UDim2.new(0.5, 0, 0.5, 0)
+keyCard.Position = UDim2.new(0.5, 0, 0.5, 25)
 keyCard.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
-keyCard.BorderSizePixel = 0
-keyCard.Parent = keyOverlay
 keyCard.BackgroundTransparency = 1
+keyCard.Parent = keyOverlay
 addCorner(keyCard, 14)
-addStroke(keyCard, Color3.fromRGB(59, 130, 246), 1)
+local cardStroke = addStroke(keyCard, Color3.fromRGB(59, 130, 246), 1)
+cardStroke.Transparency = 1
 
-local keyCardPad = Instance.new("UIPadding")
-keyCardPad.PaddingTop = UDim.new(0, 20)
-keyCardPad.PaddingBottom = UDim.new(0, 20)
-keyCardPad.PaddingLeft = UDim.new(0, 20)
-keyCardPad.PaddingRight = UDim.new(0, 20)
-keyCardPad.Parent = keyCard
-
-local keyTitle = Instance.new("TextLabel")
-keyTitle.Size = UDim2.new(1, 0, 0, 32)
-keyTitle.BackgroundTransparency = 1
-keyTitle.Font = Enum.Font.GothamBold
-keyTitle.Text = "KEY SYSTEM"
-keyTitle.TextSize = 18
-keyTitle.TextColor3 = Color3.fromRGB(59, 130, 246)
-keyTitle.Parent = keyCard
-
-local keySub = Instance.new("TextLabel")
-keySub.Size = UDim2.new(1, 0, 0, 18)
-keySub.Position = UDim2.new(0, 0, 0, 30)
-keySub.BackgroundTransparency = 1
-keySub.Font = Enum.Font.GothamMedium
-keySub.Text = "Enter your key to continue"
-keySub.TextSize = 11
-keySub.TextColor3 = Color3.fromRGB(113, 113, 122)
-keySub.Parent = keyCard
-
-local CORRECT_KEY = "AbramClient"
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 40)
+title.Position = UDim2.new(0, 0, 0, 10)
+title.BackgroundTransparency = 1
+title.Font = Enum.Font.GothamBold
+title.Text = "KEY SYSTEM"
+title.TextSize = 18
+title.TextColor3 = Color3.fromRGB(59, 130, 246)
+title.TextTransparency = 1
+title.Parent = keyCard
 
 local keyRow = Instance.new("Frame")
-keyRow.Size = UDim2.new(1, 0, 0, 40)
-keyRow.Position = UDim2.new(0, 0, 0, 56)
+keyRow.Size = UDim2.new(1, -40, 0, 40)
+keyRow.Position = UDim2.new(0, 20, 0, 60)
 keyRow.BackgroundColor3 = Color3.fromRGB(24, 24, 27)
-keyRow.BorderSizePixel = 0
+keyRow.BackgroundTransparency = 1
 keyRow.Parent = keyCard
 addCorner(keyRow, 8)
-local keyRowStroke = addStroke(keyRow, Color3.fromRGB(39, 39, 42), 1)
+local rowStroke = addStroke(keyRow, Color3.fromRGB(39, 39, 42), 1)
+rowStroke.Transparency = 1
 
 local keyInput = Instance.new("TextBox")
 keyInput.Size = UDim2.new(1, -16, 1, 0)
 keyInput.Position = UDim2.new(0, 8, 0, 0)
 keyInput.BackgroundTransparency = 1
 keyInput.Font = Enum.Font.GothamBold
+keyInput.PlaceholderText = "Enter key here..."
 keyInput.Text = ""
-keyInput.PlaceholderText = "Enter key..."
 keyInput.TextSize = 13
 keyInput.TextColor3 = Color3.fromRGB(250, 250, 250)
-keyInput.PlaceholderColor3 = Color3.fromRGB(113, 113, 122)
-keyInput.TextXAlignment = Enum.TextXAlignment.Left
+keyInput.TextTransparency = 1
 keyInput.ClearTextOnFocus = false
+keyInput.TextXAlignment = Enum.TextXAlignment.Left
 keyInput.Parent = keyRow
 
-local keyError = Instance.new("TextLabel")
-keyError.Size = UDim2.new(1, 0, 0, 16)
-keyError.Position = UDim2.new(0, 8, 1, 2)
-keyError.BackgroundTransparency = 1
-keyError.Font = Enum.Font.GothamMedium
-keyError.Text = ""
-keyError.TextSize = 10
-keyError.TextColor3 = Color3.fromRGB(239, 68, 68)
-keyError.TextXAlignment = Enum.TextXAlignment.Left
-keyError.Visible = false
-keyError.Parent = keyRow
-
-keyInput.Focused:Connect(function()
-	tw(keyRowStroke, { Color = Color3.fromRGB(59, 130, 246), Transparency = 0 })
-	keyError.Visible = false
-end)
-keyInput.FocusLost:Connect(function()
-	tw(keyRowStroke, { Color = Color3.fromRGB(39, 39, 42), Transparency = 0 })
-end)
-
-local dcRow = Instance.new("Frame")
-dcRow.Size = UDim2.new(1, 0, 0, 42)
-dcRow.Position = UDim2.new(0, 0, 0, 104)
-dcRow.BackgroundTransparency = 1
-dcRow.Parent = keyCard
-
 local dcBtn = Instance.new("TextButton")
-dcBtn.Size = UDim2.new(1, 0, 1, 0)
+dcBtn.Size = UDim2.new(0.5, -25, 0, 36)
+dcBtn.Position = UDim2.new(0, 20, 1, -46)
 dcBtn.BackgroundColor3 = Color3.fromRGB(88, 163, 255)
+dcBtn.BackgroundTransparency = 1
 dcBtn.AutoButtonColor = false
 dcBtn.Font = Enum.Font.GothamBold
-dcBtn.Text = "Copy Discord Link"
+dcBtn.Text = "Get Key"
 dcBtn.TextSize = 13
 dcBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-dcBtn.Parent = dcRow
+dcBtn.TextTransparency = 1
+dcBtn.Parent = keyCard
 addCorner(dcBtn, 8)
 
-dcBtn.MouseEnter:Connect(function()
-	pcall(function() TweenService:Create(dcBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(59, 130, 246)}):Play() end)
-end)
-dcBtn.MouseLeave:Connect(function()
-	pcall(function() TweenService:Create(dcBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(88, 163, 255)}):Play() end)
-end)
-
-local copiedLabel = Instance.new("TextLabel")
-copiedLabel.Size = UDim2.new(1, 0, 0, 16)
-copiedLabel.Position = UDim2.new(0, 0, 1, 2)
-copiedLabel.BackgroundTransparency = 1
-copiedLabel.Font = Enum.Font.GothamMedium
-copiedLabel.Text = ""
-copiedLabel.TextSize = 10
-copiedLabel.TextColor3 = Color3.fromRGB(16, 185, 129)
-copiedLabel.Parent = dcBtn
-
-dcBtn.MouseButton1Click:Connect(function()
-	local setclipboard = setclipboard or Clipboard and Clipboard.set or function() end
-	if type(setclipboard) == "function" then
-		setclipboard(DISCORD_LINK)
-	end
-	pcall(function() Notify("AbramSliem", "Discord link copied!") end)
-	copiedLabel.Text = "Copied!"
-	task.delay(2, function()
-		copiedLabel.Text = ""
-	end)
-end)
-
 local enterBtn = Instance.new("TextButton")
-enterBtn.Size = UDim2.new(1, 0, 0, 36)
-enterBtn.Position = UDim2.new(0, 0, 1, -36)
+enterBtn.Size = UDim2.new(0.5, -25, 0, 36)
+enterBtn.Position = UDim2.new(0.5, 5, 1, -46)
 enterBtn.BackgroundColor3 = Color3.fromRGB(59, 130, 246)
+enterBtn.BackgroundTransparency = 1
 enterBtn.AutoButtonColor = false
 enterBtn.Font = Enum.Font.GothamBold
 enterBtn.Text = "Enter"
 enterBtn.TextSize = 13
 enterBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+enterBtn.TextTransparency = 1
 enterBtn.Parent = keyCard
 addCorner(enterBtn, 8)
 
-enterBtn.MouseEnter:Connect(function()
-	pcall(function() TweenService:Create(enterBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(37, 99, 235)}):Play() end)
-end)
-enterBtn.MouseLeave:Connect(function()
-	pcall(function() TweenService:Create(enterBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(59, 130, 246)}):Play() end)
+task.spawn(function()
+	tw(keyOverlay, {BackgroundTransparency = 0.3}, TweenInfo.new(0.5))
+	tw(keyCard, {Position = UDim2.new(0.5, 0, 0.5, 0), BackgroundTransparency = 0}, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out))
+	tw(cardStroke, {Transparency = 0}, TweenInfo.new(0.6))
+	tw(title, {TextTransparency = 0}, TweenInfo.new(0.5))
+	tw(keyRow, {BackgroundTransparency = 0}, TweenInfo.new(0.5))
+	tw(rowStroke, {Transparency = 0}, TweenInfo.new(0.5))
+	tw(keyInput, {TextTransparency = 0}, TweenInfo.new(0.5))
+	tw(dcBtn, {BackgroundTransparency = 0, TextTransparency = 0}, TweenInfo.new(0.5))
+	tw(enterBtn, {BackgroundTransparency = 0, TextTransparency = 0}, TweenInfo.new(0.5))
 end)
 
-local function dismissKeySystem()
-	if keyOverlay and keyOverlay.Parent then
-		pcall(function()
-			TweenService:Create(keyShade, TweenInfo.new(0.5, Enum.EasingStyle.Quad), {BackgroundTransparency = 1}):Play()
-			TweenService:Create(keyCard, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.In), {Size = UDim2.new(0, 280, 0, 160)}):Play()
-		end)
-		task.wait(0.5)
-		keyOverlay:Destroy()
+dcBtn.MouseEnter:Connect(function() tw(dcBtn, {BackgroundColor3 = Color3.fromRGB(59, 130, 246)}) end)
+dcBtn.MouseLeave:Connect(function() tw(dcBtn, {BackgroundColor3 = Color3.fromRGB(88, 163, 255)}) end)
+
+enterBtn.MouseEnter:Connect(function() tw(enterBtn, {BackgroundColor3 = Color3.fromRGB(37, 99, 235)}) end)
+enterBtn.MouseLeave:Connect(function() tw(enterBtn, {BackgroundColor3 = Color3.fromRGB(59, 130, 246)}) end)
+
+keyInput.Focused:Connect(function() tw(rowStroke, {Color = Color3.fromRGB(59, 130, 246)}) end)
+keyInput.FocusLost:Connect(function() tw(rowStroke, {Color = Color3.fromRGB(39, 39, 42)}) end)
+
+dcBtn.MouseButton1Click:Connect(function()
+	local clip = setclipboard or toclipboard or Clipboard and Clipboard.set
+	if type(clip) == "function" then
+		clip(DISCORD_LINK)
+		dcBtn.Text = "Copied!"
+		task.delay(1.5, function() if dcBtn then dcBtn.Text = "Get Key" end end)
 	end
-end
+end)
 
-local function validateKey()
+local function checkKey()
 	local entered = keyInput.Text:gsub("^%s+", ""):gsub("%s+$", "")
 	if entered == CORRECT_KEY then
-		Notify("Key System", "Access granted!")
-		dismissKeySystem()
-		return true
+		enterBtn.Text = "Success!"
+		tw(enterBtn, {BackgroundColor3 = Color3.fromRGB(16, 185, 129)})
+		tw(rowStroke, {Color = Color3.fromRGB(16, 185, 129)})
+		tw(keyCard, {Position = UDim2.new(0.5, 0, 0.5, -20), BackgroundTransparency = 1}, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.In))
+		tw(cardStroke, {Transparency = 1}, TweenInfo.new(0.4))
+		tw(title, {TextTransparency = 1}, TweenInfo.new(0.3))
+		tw(keyRow, {BackgroundTransparency = 1}, TweenInfo.new(0.3))
+		tw(rowStroke, {Transparency = 1}, TweenInfo.new(0.3))
+		tw(keyInput, {TextTransparency = 1}, TweenInfo.new(0.3))
+		tw(dcBtn, {BackgroundTransparency = 1, TextTransparency = 1}, TweenInfo.new(0.3))
+		tw(enterBtn, {BackgroundTransparency = 1, TextTransparency = 1}, TweenInfo.new(0.3))
+		task.wait(0.3)
+		tw(keyOverlay, {BackgroundTransparency = 1}, TweenInfo.new(0.3))
+		task.wait(0.3)
+		keyOverlay:Destroy()
+		keyAuthenticated = true
 	else
-		keyError.Text = "Wrong key! Try again."
-		keyError.Visible = true
-		tw(keyRowStroke, { Color = Color3.fromRGB(239, 68, 68), Transparency = 0 })
-		task.delay(3, function()
-			if keyError and keyError.Parent then
-				keyError.Visible = false
-				tw(keyRowStroke, { Color = Color3.fromRGB(39, 39, 42), Transparency = 0 })
+		enterBtn.Text = "Wrong Key!"
+		tw(enterBtn, {BackgroundColor3 = Color3.fromRGB(239, 68, 68)})
+		tw(rowStroke, {Color = Color3.fromRGB(239, 68, 68)})
+		task.delay(1.5, function()
+			if enterBtn then
+				enterBtn.Text = "Enter"
+				tw(enterBtn, {BackgroundColor3 = Color3.fromRGB(59, 130, 246)})
+				tw(rowStroke, {Color = Color3.fromRGB(39, 39, 42)})
 			end
 		end)
-		return false
 	end
 end
 
-enterBtn.MouseButton1Click:Connect(function()
-	validateKey()
-end)
-
+enterBtn.MouseButton1Click:Connect(checkKey)
 keyInput.FocusLost:Connect(function(enterPressed)
-	if enterPressed then
-		validateKey()
-	end
+	if enterPressed then checkKey() end
 end)
 
-task.spawn(function()
-	task.wait(30)
-	if keyOverlay and keyOverlay.Parent then
-		dismissKeySystem()
-	end
-end)
-
--- Fade-in animation
-keyCard.Size = UDim2.new(0, 260, 0, 160)
-keyShade.BackgroundTransparency = 1
-keyCard.BackgroundTransparency = 1
-
-task.spawn(function()
-	task.wait(0.05)
-	pcall(function()
-		TweenService:Create(keyShade, TweenInfo.new(0.6, Enum.EasingStyle.Quad), {BackgroundTransparency = 0.3}):Play()
-		TweenService:Create(keyCard, TweenInfo.new(0.7, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 320, 0, 200)}):Play()
-		TweenService:Create(keyCard, TweenInfo.new(0.6, Enum.EasingStyle.Quad), {BackgroundTransparency = 0}):Play()
-	end)
-end)
+repeat task.wait(0.1) until keyAuthenticated
+-- ===== END KEY SYSTEM =====
 
 -- Определение платформы и адаптивный размер
 local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
