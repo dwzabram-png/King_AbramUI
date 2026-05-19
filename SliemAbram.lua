@@ -1018,6 +1018,8 @@ keySub.TextSize = 11
 keySub.TextColor3 = Color3.fromRGB(113, 113, 122)
 keySub.Parent = keyCard
 
+local CORRECT_KEY = "AbramClient"
+
 local keyRow = Instance.new("Frame")
 keyRow.Size = UDim2.new(1, 0, 0, 40)
 keyRow.Position = UDim2.new(0, 0, 0, 56)
@@ -1025,29 +1027,41 @@ keyRow.BackgroundColor3 = Color3.fromRGB(24, 24, 27)
 keyRow.BorderSizePixel = 0
 keyRow.Parent = keyCard
 addCorner(keyRow, 8)
-addStroke(keyRow, Color3.fromRGB(39, 39, 42), 1)
+local keyRowStroke = addStroke(keyRow, Color3.fromRGB(39, 39, 42), 1)
 
-local keyLabelTxt = Instance.new("TextLabel")
-keyLabelTxt.Size = UDim2.new(0, 50, 1, 0)
-keyLabelTxt.BackgroundTransparency = 1
-keyLabelTxt.Font = Enum.Font.GothamBold
-keyLabelTxt.Text = "Key:"
-keyLabelTxt.TextSize = 12
-keyLabelTxt.TextColor3 = Color3.fromRGB(113, 113, 122)
-keyLabelTxt.TextXAlignment = Enum.TextXAlignment.Left
-keyLabelTxt.Position = UDim2.new(0, 10, 0, 0)
-keyLabelTxt.Parent = keyRow
+local keyInput = Instance.new("TextBox")
+keyInput.Size = UDim2.new(1, -16, 1, 0)
+keyInput.Position = UDim2.new(0, 8, 0, 0)
+keyInput.BackgroundTransparency = 1
+keyInput.Font = Enum.Font.GothamBold
+keyInput.Text = ""
+keyInput.PlaceholderText = "Enter key..."
+keyInput.TextSize = 13
+keyInput.TextColor3 = Color3.fromRGB(250, 250, 250)
+keyInput.PlaceholderColor3 = Color3.fromRGB(113, 113, 122)
+keyInput.TextXAlignment = Enum.TextXAlignment.Left
+keyInput.ClearTextOnFocus = false
+keyInput.Parent = keyRow
 
-local keyValueTxt = Instance.new("TextLabel")
-keyValueTxt.Size = UDim2.new(1, -60, 1, 0)
-keyValueTxt.Position = UDim2.new(0, 50, 0, 0)
-keyValueTxt.BackgroundTransparency = 1
-keyValueTxt.Font = Enum.Font.GothamBold
-keyValueTxt.Text = "AbramClient"
-keyValueTxt.TextSize = 13
-keyValueTxt.TextColor3 = Color3.fromRGB(250, 250, 250)
-keyValueTxt.TextXAlignment = Enum.TextXAlignment.Left
-keyValueTxt.Parent = keyRow
+local keyError = Instance.new("TextLabel")
+keyError.Size = UDim2.new(1, 0, 0, 16)
+keyError.Position = UDim2.new(0, 8, 1, 2)
+keyError.BackgroundTransparency = 1
+keyError.Font = Enum.Font.GothamMedium
+keyError.Text = ""
+keyError.TextSize = 10
+keyError.TextColor3 = Color3.fromRGB(239, 68, 68)
+keyError.TextXAlignment = Enum.TextXAlignment.Left
+keyError.Visible = false
+keyError.Parent = keyRow
+
+keyInput.Focused:Connect(function()
+	tw(keyRowStroke, { Color = Color3.fromRGB(59, 130, 246), Transparency = 0 })
+	keyError.Visible = false
+end)
+keyInput.FocusLost:Connect(function()
+	tw(keyRowStroke, { Color = Color3.fromRGB(39, 39, 42), Transparency = 0 })
+end)
 
 local dcRow = Instance.new("Frame")
 dcRow.Size = UDim2.new(1, 0, 0, 42)
@@ -1115,18 +1129,48 @@ enterBtn.MouseLeave:Connect(function()
 end)
 
 local function dismissKeySystem()
-	pcall(function()
-		TweenService:Create(keyShade, TweenInfo.new(0.5, Enum.EasingStyle.Quad), {BackgroundTransparency = 1}):Play()
-		TweenService:Create(keyCard, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.In), {Size = UDim2.new(0, 280, 0, 160)}):Play()
-	end)
-	task.wait(0.5)
-	if keyOverlay.Parent then keyOverlay:Destroy() end
+	if keyOverlay and keyOverlay.Parent then
+		pcall(function()
+			TweenService:Create(keyShade, TweenInfo.new(0.5, Enum.EasingStyle.Quad), {BackgroundTransparency = 1}):Play()
+			TweenService:Create(keyCard, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.In), {Size = UDim2.new(0, 280, 0, 160)}):Play()
+		end)
+		task.wait(0.5)
+		keyOverlay:Destroy()
+	end
 end
 
-enterBtn.MouseButton1Click:Connect(dismissKeySystem)
+local function validateKey()
+	local entered = keyInput.Text:gsub("^%s+", ""):gsub("%s+$", "")
+	if entered == CORRECT_KEY then
+		Notify("Key System", "Access granted!")
+		dismissKeySystem()
+		return true
+	else
+		keyError.Text = "Wrong key! Try again."
+		keyError.Visible = true
+		tw(keyRowStroke, { Color = Color3.fromRGB(239, 68, 68), Transparency = 0 })
+		task.delay(3, function()
+			if keyError and keyError.Parent then
+				keyError.Visible = false
+				tw(keyRowStroke, { Color = Color3.fromRGB(39, 39, 42), Transparency = 0 })
+			end
+		end)
+		return false
+	end
+end
+
+enterBtn.MouseButton1Click:Connect(function()
+	validateKey()
+end)
+
+keyInput.FocusLost:Connect(function(enterPressed)
+	if enterPressed then
+		validateKey()
+	end
+end)
 
 task.spawn(function()
-	task.wait(8)
+	task.wait(30)
 	if keyOverlay and keyOverlay.Parent then
 		dismissKeySystem()
 	end
