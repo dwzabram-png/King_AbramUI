@@ -736,45 +736,49 @@ local FEATURES = {
 		getSignal = function() return RunService.Heartbeat end,
 		callback = function()
 			if not State.AutoFarm or not clientHRP then return end
+			
 			local lootFolder = workspace:FindFirstChild("Loot")
 			if not lootFolder then return end
 			
 			local playerPos = clientHRP.Position
-			local magnetRange = 150 -- радиус подсоса
+			local magnetRange = 150
+			local hrpCFrame = clientHRP.CFrame
 			
 			for _, drop in ipairs(lootFolder:GetChildren()) do
 				if not State.AutoFarm then break end
+				if not drop:IsA("Model") then continue end
 				
 				local rootPart = drop:FindFirstChild("Root") or drop:FindFirstChildWhichIsA("BasePart")
-				if rootPart then
-					local dist = (rootPart.Position - playerPos).Magnitude
-					if dist < magnetRange then
-						-- Оффаем физику и телепортируем к себе
-						rootPart.CanCollide = false
-						rootPart.AssemblyLinearVelocity = Vector3.zero
-						rootPart.CFrame = clientHRP.CFrame
-						
-						-- 1. Сбор касанием (стандартный лут)
-						if firetouchinterest and rootPart:FindFirstChild("TouchInterest") then
-							firetouchinterest(clientHRP, rootPart, 0)
-							firetouchinterest(clientHRP, rootPart, 1)
-						end
-						
-						-- 2. Сбор на кнопку "E" (ProximityPrompt)
-						local prompt = drop:FindFirstChildWhichIsA("ProximityPrompt", true)
-						if prompt then
-							if fireproximityprompt then
-								-- Если экзекутор норм - насилуем промпт инстантно
-								fireproximityprompt(prompt)
-							else
-								-- Если экзекутор бомжарский - асинхронно эмулируем зажатие клавиши
-								task.spawn(function()
-									prompt:InputHoldBegin()
-									task.wait(prompt.HoldDuration or 0)
-									prompt:InputHoldEnd()
-								end)
-							end
-						end
+				if not rootPart then continue end
+				
+				local dist = (rootPart.Position - playerPos).Magnitude
+				if dist >= magnetRange then continue end
+				
+				-- Teleport to player, disable physics
+				rootPart.CanCollide = false
+				rootPart.AssemblyLinearVelocity = Vector3.zero
+				rootPart.CFrame = hrpCFrame
+				
+				-- Touch pickup (TouchTransmitter class check)
+				if type(firetouchinterest) == "function" then
+					local tx = rootPart:FindFirstChildWhichIsA("TouchTransmitter")
+					if tx then
+						firetouchinterest(clientHRP, rootPart, 0)
+						firetouchinterest(clientHRP, rootPart, 1)
+					end
+				end
+				
+				-- E-prompt pickup (ProximityPrompt)
+				local pp = drop:FindFirstChildWhichIsA("ProximityPrompt", true)
+				if pp then
+					if type(fireproximityprompt) == "function" then
+						fireproximityprompt(pp)
+					else
+						task.spawn(function()
+							pp:InputHoldBegin()
+							task.wait(pp.HoldDuration or 0)
+							pp:InputHoldEnd()
+						end)
 					end
 				end
 			end
@@ -903,6 +907,191 @@ local function toggleFeature(name, value)
 	end
 	if NS.RefreshFooterUI then NS.RefreshFooterUI() end
 end
+
+-- ===== KEY SYSTEM ====================
+task.wait(0.1)
+
+local DISCORD_LINK = "https://discord.gg/9SK9sYty"
+
+local keyOverlay = Instance.new("Frame")
+keyOverlay.Size = UDim2.new(1, 0, 1, 0)
+keyOverlay.BackgroundColor3 = Color3.fromRGB(9, 9, 11)
+keyOverlay.BackgroundTransparency = 0
+keyOverlay.BorderSizePixel = 0
+keyOverlay.Parent = screenGui
+keyOverlay.ZIndex = 100
+
+local keyShade = Instance.new("Frame")
+keyShade.Size = UDim2.new(1, 0, 1, 0)
+keyShade.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+keyShade.BackgroundTransparency = 1
+keyShade.BorderSizePixel = 0
+keyShade.Parent = keyOverlay
+
+local keyCard = Instance.new("Frame")
+keyCard.Size = UDim2.new(0, 320, 0, 200)
+keyCard.AnchorPoint = Vector2.new(0.5, 0.5)
+keyCard.Position = UDim2.new(0.5, 0, 0.5, 0)
+keyCard.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+keyCard.BorderSizePixel = 0
+keyCard.Parent = keyOverlay
+keyCard.BackgroundTransparency = 1
+addCorner(keyCard, 14)
+addStroke(keyCard, Color3.fromRGB(59, 130, 246), 1)
+
+local keyCardPad = Instance.new("UIPadding")
+keyCardPad.PaddingTop = UDim.new(0, 20)
+keyCardPad.PaddingBottom = UDim.new(0, 20)
+keyCardPad.PaddingLeft = UDim.new(0, 20)
+keyCardPad.PaddingRight = UDim.new(0, 20)
+keyCardPad.Parent = keyCard
+
+local keyTitle = Instance.new("TextLabel")
+keyTitle.Size = UDim2.new(1, 0, 0, 32)
+keyTitle.BackgroundTransparency = 1
+keyTitle.Font = Enum.Font.GothamBold
+keyTitle.Text = "KEY SYSTEM"
+keyTitle.TextSize = 18
+keyTitle.TextColor3 = Color3.fromRGB(59, 130, 246)
+keyTitle.Parent = keyCard
+
+local keySub = Instance.new("TextLabel")
+keySub.Size = UDim2.new(1, 0, 0, 18)
+keySub.Position = UDim2.new(0, 0, 0, 30)
+keySub.BackgroundTransparency = 1
+keySub.Font = Enum.Font.GothamMedium
+keySub.Text = "Enter your key to continue"
+keySub.TextSize = 11
+keySub.TextColor3 = Color3.fromRGB(113, 113, 122)
+keySub.Parent = keyCard
+
+local keyRow = Instance.new("Frame")
+keyRow.Size = UDim2.new(1, 0, 0, 40)
+keyRow.Position = UDim2.new(0, 0, 0, 56)
+keyRow.BackgroundColor3 = Color3.fromRGB(24, 24, 27)
+keyRow.BorderSizePixel = 0
+keyRow.Parent = keyCard
+addCorner(keyRow, 8)
+addStroke(keyRow, Color3.fromRGB(39, 39, 42), 1)
+
+local keyLabelTxt = Instance.new("TextLabel")
+keyLabelTxt.Size = UDim2.new(0, 50, 1, 0)
+keyLabelTxt.BackgroundTransparency = 1
+keyLabelTxt.Font = Enum.Font.GothamBold
+keyLabelTxt.Text = "Key:"
+keyLabelTxt.TextSize = 12
+keyLabelTxt.TextColor3 = Color3.fromRGB(113, 113, 122)
+keyLabelTxt.TextXAlignment = Enum.TextXAlignment.Left
+keyLabelTxt.Position = UDim2.new(0, 10, 0, 0)
+keyLabelTxt.Parent = keyRow
+
+local keyValueTxt = Instance.new("TextLabel")
+keyValueTxt.Size = UDim2.new(1, -60, 1, 0)
+keyValueTxt.Position = UDim2.new(0, 50, 0, 0)
+keyValueTxt.BackgroundTransparency = 1
+keyValueTxt.Font = Enum.Font.GothamBold
+keyValueTxt.Text = "AbramClient"
+keyValueTxt.TextSize = 13
+keyValueTxt.TextColor3 = Color3.fromRGB(250, 250, 250)
+keyValueTxt.TextXAlignment = Enum.TextXAlignment.Left
+keyValueTxt.Parent = keyRow
+
+local dcRow = Instance.new("Frame")
+dcRow.Size = UDim2.new(1, 0, 0, 42)
+dcRow.Position = UDim2.new(0, 0, 0, 104)
+dcRow.BackgroundTransparency = 1
+dcRow.Parent = keyCard
+
+local dcBtn = Instance.new("TextButton")
+dcBtn.Size = UDim2.new(1, 0, 1, 0)
+dcBtn.BackgroundColor3 = Color3.fromRGB(88, 163, 255)
+dcBtn.AutoButtonColor = false
+dcBtn.Font = Enum.Font.GothamBold
+dcBtn.Text = "Copy Discord Link"
+dcBtn.TextSize = 13
+dcBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+dcBtn.Parent = dcRow
+addCorner(dcBtn, 8)
+
+dcBtn.MouseEnter:Connect(function()
+	pcall(function() TweenService:Create(dcBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(59, 130, 246)}):Play() end)
+end)
+dcBtn.MouseLeave:Connect(function()
+	pcall(function() TweenService:Create(dcBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(88, 163, 255)}):Play() end)
+end)
+
+local copiedLabel = Instance.new("TextLabel")
+copiedLabel.Size = UDim2.new(1, 0, 0, 16)
+copiedLabel.Position = UDim2.new(0, 0, 1, 2)
+copiedLabel.BackgroundTransparency = 1
+copiedLabel.Font = Enum.Font.GothamMedium
+copiedLabel.Text = ""
+copiedLabel.TextSize = 10
+copiedLabel.TextColor3 = Color3.fromRGB(16, 185, 129)
+copiedLabel.Parent = dcBtn
+
+dcBtn.MouseButton1Click:Connect(function()
+	local setclipboard = setclipboard or Clipboard and Clipboard.set or function() end
+	if type(setclipboard) == "function" then
+		setclipboard(DISCORD_LINK)
+	end
+	pcall(function() Notify("AbramSliem", "Discord link copied!") end)
+	copiedLabel.Text = "Copied!"
+	task.delay(2, function()
+		copiedLabel.Text = ""
+	end)
+end)
+
+local enterBtn = Instance.new("TextButton")
+enterBtn.Size = UDim2.new(1, 0, 0, 36)
+enterBtn.Position = UDim2.new(0, 0, 1, -36)
+enterBtn.BackgroundColor3 = Color3.fromRGB(59, 130, 246)
+enterBtn.AutoButtonColor = false
+enterBtn.Font = Enum.Font.GothamBold
+enterBtn.Text = "Enter"
+enterBtn.TextSize = 13
+enterBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+enterBtn.Parent = keyCard
+addCorner(enterBtn, 8)
+
+enterBtn.MouseEnter:Connect(function()
+	pcall(function() TweenService:Create(enterBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(37, 99, 235)}):Play() end)
+end)
+enterBtn.MouseLeave:Connect(function()
+	pcall(function() TweenService:Create(enterBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(59, 130, 246)}):Play() end)
+end)
+
+local function dismissKeySystem()
+	pcall(function()
+		TweenService:Create(keyShade, TweenInfo.new(0.5, Enum.EasingStyle.Quad), {BackgroundTransparency = 1}):Play()
+		TweenService:Create(keyCard, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.In), {Size = UDim2.new(0, 280, 0, 160)}):Play()
+	end)
+	task.wait(0.5)
+	if keyOverlay.Parent then keyOverlay:Destroy() end
+end
+
+enterBtn.MouseButton1Click:Connect(dismissKeySystem)
+
+task.spawn(function()
+	task.wait(8)
+	if keyOverlay and keyOverlay.Parent then
+		dismissKeySystem()
+	end
+end)
+
+-- Fade-in animation
+keyCard.Size = UDim2.new(0, 260, 0, 160)
+keyShade.BackgroundTransparency = 1
+keyCard.BackgroundTransparency = 1
+
+task.spawn(function()
+	task.wait(0.05)
+	pcall(function()
+		TweenService:Create(keyShade, TweenInfo.new(0.6, Enum.EasingStyle.Quad), {BackgroundTransparency = 0.3}):Play()
+		TweenService:Create(keyCard, TweenInfo.new(0.7, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 320, 0, 200)}):Play()
+		TweenService:Create(keyCard, TweenInfo.new(0.6, Enum.EasingStyle.Quad), {BackgroundTransparency = 0}):Play()
+	end)
+end)
 
 -- ==================== UI v5 — PERFECT DARK MODE & WIDGET & ALL FEATURES ====================
 pcall(function()
