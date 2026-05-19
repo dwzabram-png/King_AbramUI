@@ -908,9 +908,62 @@ local function toggleFeature(name, value)
 	if NS.RefreshFooterUI then NS.RefreshFooterUI() end
 end
 
--- ===== KEY SYSTEM ====================
-task.wait(0.1)
+-- ==================== UI v5 — PERFECT DARK MODE & WIDGET & ALL FEATURES ====================
+pcall(function()
+	for _, v in ipairs(CoreGui:GetChildren()) do
+		if v:IsA("ScreenGui") and (v.Name == "AbramSliemGui" or v.Name:match("^AS_")) then
+			v:Destroy()
+		end
+	end
+end)
 
+local C = {
+	BG        = Color3.fromRGB(9, 9, 11),
+	Surface   = Color3.fromRGB(24, 24, 27),
+	SurfaceHi = Color3.fromRGB(39, 39, 42),
+	Border    = Color3.fromRGB(39, 39, 42),
+	BorderHi  = Color3.fromRGB(63, 63, 70),
+	Accent    = Color3.fromRGB(59, 130, 246),
+	AccentDim = Color3.fromRGB(37, 99, 235),
+	Text      = Color3.fromRGB(250, 250, 250),
+	TextDim   = Color3.fromRGB(161, 161, 170),
+	TextMuted = Color3.fromRGB(113, 113, 122),
+	Green     = Color3.fromRGB(16, 185, 129),
+	Track     = Color3.fromRGB(63, 63, 70),
+	Knob      = Color3.fromRGB(255, 255, 255),
+}
+
+local TW_FAST = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local TW_POP  = TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+local function tw(obj, props, info)
+	pcall(function()
+		TweenService:Create(obj, info or TW_FAST, props):Play()
+	end)
+end
+
+local function addCorner(p, r)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, r or 8)
+	c.Parent = p
+	return c
+end
+
+local function addStroke(p, col, t)
+	local s = Instance.new("UIStroke")
+	s.Color = col or C.Border
+	s.Thickness = t or 1
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.Parent = p
+	return s
+end
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AS_" .. HttpService:GenerateGUID(false):sub(1,8)
+screenGui.ResetOnSpawn = false
+screenGui.Parent = (getHui and getHui()) or CoreGui
+
+-- ===== KEY SYSTEM ====================
 local DISCORD_LINK = "https://discord.gg/9SK9sYty"
 
 local keyOverlay = Instance.new("Frame")
@@ -1092,61 +1145,6 @@ task.spawn(function()
 		TweenService:Create(keyCard, TweenInfo.new(0.6, Enum.EasingStyle.Quad), {BackgroundTransparency = 0}):Play()
 	end)
 end)
-
--- ==================== UI v5 — PERFECT DARK MODE & WIDGET & ALL FEATURES ====================
-pcall(function()
-	for _, v in ipairs(CoreGui:GetChildren()) do
-		if v:IsA("ScreenGui") and (v.Name == "AbramSliemGui" or v.Name:match("^AS_")) then
-			v:Destroy()
-		end
-	end
-end)
-
-local C = {
-	BG        = Color3.fromRGB(9, 9, 11),
-	Surface   = Color3.fromRGB(24, 24, 27),
-	SurfaceHi = Color3.fromRGB(39, 39, 42),
-	Border    = Color3.fromRGB(39, 39, 42),
-	BorderHi  = Color3.fromRGB(63, 63, 70),
-	Accent    = Color3.fromRGB(59, 130, 246),
-	AccentDim = Color3.fromRGB(37, 99, 235),
-	Text      = Color3.fromRGB(250, 250, 250),
-	TextDim   = Color3.fromRGB(161, 161, 170),
-	TextMuted = Color3.fromRGB(113, 113, 122),
-	Green     = Color3.fromRGB(16, 185, 129),
-	Track     = Color3.fromRGB(63, 63, 70),
-	Knob      = Color3.fromRGB(255, 255, 255),
-}
-
-local TW_FAST = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-local TW_POP  = TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-
-local function tw(obj, props, info)
-	pcall(function()
-		TweenService:Create(obj, info or TW_FAST, props):Play()
-	end)
-end
-
-local function addCorner(p, r)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, r or 8)
-	c.Parent = p
-	return c
-end
-
-local function addStroke(p, col, t)
-	local s = Instance.new("UIStroke")
-	s.Color = col or C.Border
-	s.Thickness = t or 1
-	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	s.Parent = p
-	return s
-end
-
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "AS_" .. HttpService:GenerateGUID(false):sub(1,8)
-screenGui.ResetOnSpawn = false
-screenGui.Parent = (getHui and getHui()) or CoreGui
 
 -- Определение платформы и адаптивный размер
 local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
