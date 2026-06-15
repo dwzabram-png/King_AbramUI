@@ -272,16 +272,16 @@ local function ensureAntiVoid()
         State.AntiVoid = true
         return
     end
-    local pos = Vector3.new(0, 65, 0)
+    local pos = Vector3.new(0, 55, 0)
     if mapFolder then
         local ok, cf = pcall(function() return mapFolder:GetPivot() end)
         if ok and cf then
-            pos = Vector3.new(cf.Position.X, 65, cf.Position.Z)
+            pos = Vector3.new(cf.Position.X, 55, cf.Position.Z)
         end
     end
     antiVoidPart = Instance.new("Part")
     antiVoidPart.Name         = "AS_AntiVoidPart"
-    antiVoidPart.Size         = Vector3.new(2000, 4, 2000)
+    antiVoidPart.Size         = Vector3.new(2000, 10, 2000)
     antiVoidPart.Position     = pos
     antiVoidPart.Anchored     = true
     antiVoidPart.CanCollide   = true
