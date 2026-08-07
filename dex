@@ -13644,7 +13644,7 @@ local function main()
 		saveModules.Position = UDim2.new(0.5,0,0,0)
 		saveModules.Size = UDim2.new(0.25,0,0,20)
 		saveModules.Text = "Save to Module"
-		if type(env.decompile) == "function" then
+		if type(env.decompile) == "function" and env.writefile then
 			saveModules.TextColor3 = Color3.new(1,1,1)
 			saveModules.Interactable = true
 		else
@@ -13655,40 +13655,61 @@ local function main()
 		local savingModules = false
 		saveModules.MouseButton1Click:Connect(function()
 			if savingModules then return end
+			if type(env.decompile) ~= "function" then return end
 			savingModules = true
+			saveModules.Text = "Saving..."
+			saveModules.Interactable = false
 
 			task.spawn(function()
-				local modules = {}
-				local container = service.ReplicatedStorage
-				for _, obj in ipairs(container:GetDescendants()) do
-					if obj:IsA("ModuleScript") then
-						modules[#modules+1] = obj
+				local okDump, errDump = pcall(function()
+					local modules = {}
+					local container = service.ReplicatedStorage
+					for _, obj in ipairs(container:GetDescendants()) do
+						if obj:IsA("ModuleScript") then
+							modules[#modules+1] = obj
+						end
 					end
-				end
 
-				task.wait()
-
-				local lines = {
-					"-- Dex++ Module Dump",
-					"-- PlaceId: "..game.PlaceId,
-					"-- Modules: "..#modules,
-					""
-				}
-				local decompile = env.decompile
-				for i, mod in ipairs(modules) do
-					local ok, src = pcall(decompile, mod)
-					table.insert(lines, ("-- ===== [%d/%d] %s ====="):format(i,#modules,getPath(mod)))
-					if ok and type(src) == "string" then
-						table.insert(lines, src)
-					else
-						table.insert(lines, "-- FAILED TO DECOMPILE: "..tostring(src))
+					local total = #modules
+					local lines = {
+						"-- Dex++ Module Dump",
+						"-- PlaceId: "..tostring(game.PlaceId),
+						"-- Modules: "..tostring(total),
+						"-- Time: "..os.date("%Y-%m-%d %H:%M:%S"),
+						""
+					}
+					local decompile = env.decompile
+					for i, mod in ipairs(modules) do
+						saveModules.Text = ("Saving %d/%d"):format(i, total)
+						local pathOk, pathStr = pcall(getPath, mod)
+						if not pathOk then pathStr = tostring(mod) end
+						local ok, src = pcall(decompile, mod)
+						table.insert(lines, ("-- ===== [%d/%d] %s ====="):format(i, total, pathStr))
+						if ok and type(src) == "string" then
+							table.insert(lines, src)
+						else
+							table.insert(lines, "-- FAILED TO DECOMPILE: "..tostring(src))
+						end
+						table.insert(lines, "")
+						if i % 5 == 0 then task.wait() end
 					end
-					table.insert(lines, "")
-					if i % 10 == 0 then task.wait() end
-				end
 
+					Lib.SaveAsPrompt(
+						"Place_"..game.PlaceId.."_Modules_"..os.time()..".txt",
+						table.concat(lines, "\n")
+					)
+				end)
+
+				if not okDump then
+					warn("[Dex++] Save to Module error: "..tostring(errDump))
+				end
 				savingModules = false
-				Lib.SaveAsPrompt("Place_"..game.PlaceId.."_Modules_"..os.time()..".txt", table.concat(lines,"\n\n"))
+				saveModules.Text = "Save to Module"
+				saveModules.Interactable = true
+				if type(env.decompile) ~= "function" or not env.writefile then
+					saveModules.TextColor3 = Color3.new(0.5,0.5,0.5)
+					saveModules.Interactable = false
+				end
 			end)
 		end)
 		
