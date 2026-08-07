@@ -13599,7 +13599,7 @@ local function main()
 		
 		local copy = Instance.new("TextButton",window.GuiElems.Content)
 		copy.BackgroundTransparency = 1
-		copy.Size = UDim2.new(0.33,0,0,20)
+		copy.Size = UDim2.new(0.25,0,0,20)
 		copy.Position = UDim2.new(0,0,0,0)
 		copy.Text = "Copy to Clipboard"
 		
@@ -13618,8 +13618,8 @@ local function main()
 
 		local save = Instance.new("TextButton",window.GuiElems.Content)
 		save.BackgroundTransparency = 1
-		save.Size = UDim2.new(0.33,0,0,20)
-		save.Position = UDim2.new(0.33,0,0,0)
+		save.Size = UDim2.new(0.25,0,0,20)
+		save.Position = UDim2.new(0.25,0,0,0)
 		save.Text = "Save to File"
 		save.TextColor3 = Color3.new(1,1,1)
 		
@@ -13639,10 +13639,63 @@ local function main()
 			--env.writefile(filename,source)
 		end)
 		
+		local saveModules = Instance.new("TextButton",window.GuiElems.Content)
+		saveModules.BackgroundTransparency = 1
+		saveModules.Position = UDim2.new(0.5,0,0,0)
+		saveModules.Size = UDim2.new(0.25,0,0,20)
+		saveModules.Text = "Save to Module"
+		if type(env.decompile) == "function" then
+			saveModules.TextColor3 = Color3.new(1,1,1)
+			saveModules.Interactable = true
+		else
+			saveModules.TextColor3 = Color3.new(0.5,0.5,0.5)
+			saveModules.Interactable = false
+		end
+
+		local savingModules = false
+		saveModules.MouseButton1Click:Connect(function()
+			if savingModules then return end
+			savingModules = true
+
+			task.spawn(function()
+				local modules = {}
+				local container = service.ReplicatedStorage
+				for _, obj in ipairs(container:GetDescendants()) do
+					if obj:IsA("ModuleScript") then
+						modules[#modules+1] = obj
+					end
+				end
+
+				task.wait()
+
+				local lines = {
+					"-- Dex++ Module Dump",
+					"-- PlaceId: "..game.PlaceId,
+					"-- Modules: "..#modules,
+					""
+				}
+				local decompile = env.decompile
+				for i, mod in ipairs(modules) do
+					local ok, src = pcall(decompile, mod)
+					table.insert(lines, ("-- ===== [%d/%d] %s ====="):format(i,#modules,getPath(mod)))
+					if ok and type(src) == "string" then
+						table.insert(lines, src)
+					else
+						table.insert(lines, "-- FAILED TO DECOMPILE: "..tostring(src))
+					end
+					table.insert(lines, "")
+					if i % 10 == 0 then task.wait() end
+				end
+
+				savingModules = false
+				Lib.SaveAsPrompt("Place_"..game.PlaceId.."_Modules_"..os.time()..".txt", table.concat(lines,"\n\n"))
+			end)
+		end)
+		
 		dumpbtn = Instance.new("TextButton",window.GuiElems.Content)
 		dumpbtn.BackgroundTransparency = 1
-		dumpbtn.Position = UDim2.new(0.7,0,0,0)
-		dumpbtn.Size = UDim2.new(0.3,0,0,20)
+		dumpbtn.Position = UDim2.new(0.75,0,0,0)
+		dumpbtn.Size = UDim2.new(0.25,0,0,20)
 		dumpbtn.Text = "Dump Functions"
 		dumpbtn.TextColor3 = Color3.new(0.5,0.5,0.5)
 		
