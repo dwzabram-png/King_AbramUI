@@ -13175,7 +13175,13 @@ end
 local function main()
 	local SaveInstance = {}
 	local window, ListFrame
-	local fileName = "Place_"..game.PlaceId.."_"..game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name.."_{TIMESTAMP}"
+	local placeName do
+		local ok, info = pcall(function()
+			return game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name
+		end)
+		placeName = (ok and info) and info or "Unknown"
+	end
+	local fileName = "Place_"..game.PlaceId.."_"..placeName.."_{TIMESTAMP}"
 	local Saving = false
 	
 	local SaveInstanceArgs = {
@@ -13328,24 +13334,31 @@ local function main()
 		
 		local decompileTimeout = AddTextbox("Decompile Timeout (s)", SaveInstanceArgs.DecompileTimeout, 15)
 		decompileTimeout.TextBox.FocusLost:Connect(function()
-			SaveInstanceArgs.DecompileTimeout = tonumber(decompileTimeout.TextBox.Text)
+			local n = tonumber(decompileTimeout.TextBox.Text)
+			if n and n > 0 then
+				SaveInstanceArgs.DecompileTimeout = n
+			end
+			decompileTimeout.TextBox.Text = tostring(SaveInstanceArgs.DecompileTimeout)
 		end)
 		
 		local decompileThread = AddTextbox("Decompiler Max Threads", "3", 15)
 		decompileThread.TextBox.FocusLost:Connect(function()
-			SaveInstanceArgs.MaxThreads = tonumber(decompileThread.TextBox.Text)
+			local n = tonumber(decompileThread.TextBox.Text)
+			if n and n >= 1 then
+				SaveInstanceArgs.MaxThreads = math.floor(n)
+			end
+			decompileThread.TextBox.Text = tostring(SaveInstanceArgs.MaxThreads or 3)
 		end)
 		
 		local decompileIgnore = AddTextbox("Decompile Ignore", table.concat(SaveInstanceArgs.DecompileIgnore, ","), 50)
 		decompileIgnore.TextBox.FocusLost:Connect(function()
 			local inputText = decompileIgnore.TextBox.Text
-			local rawList = string.split(inputText, ", ") or string.split(inputText, ",")
 			local finalList = {}
 
-			for _, text in ipairs(rawList) do
-				local split = string.split(text, ",") or string.split(text, ", ")
-				for _, textFound in ipairs(split) do
-					table.insert(finalList, textFound)
+			for _, text in ipairs(string.split(inputText, ",")) do
+				local trimmed = text:gsub("^%s+", ""):gsub("%s+$", "")
+				if trimmed ~= "" then
+					table.insert(finalList, trimmed)
 				end
 			end
 			SaveInstanceArgs.DecompileIgnore = finalList
@@ -13401,31 +13414,102 @@ local function main()
 		
 		local LabelButton = Lib.Label.new()
 		LabelButton.Gui.Parent = window.GuiElems.Content
-		LabelButton.Size = UDim2.new(1,0, 0,20)
+		LabelButton.Size = UDim2.new(0.5,0, 0,20)
 		LabelButton.Position = UDim2.new(0,0, 1,-20)
-		LabelButton.Gui.Text = "Save"
+		LabelButton.Gui.Text = "Save Game"
 		LabelButton.Gui.TextXAlignment = Enum.TextXAlignment.Center
 		
 		local Button = Instance.new("TextButton")
 		Button.Parent = BackgroundButton.Gui
-		Button.Size = UDim2.new(1,0, 1,0)
+		Button.Size = UDim2.new(0.5,0, 1,0)
 		Button.Position = UDim2.new(0,0, 0,0)
 		Button.Transparency = 1
 		
-		FilenameTextBox.TextBox.Text = fileName
-		Button.MouseButton1Click:Connect(function()
-			local fileName = FilenameTextBox.TextBox.Text:gsub("{TIMESTAMP}", os.date("%d-%m-%Y_%H-%M-%S"))
-			window:SetTitle("Save Instance - Saving")
-			local s, result = pcall(env.saveinstance, game, fileName, SaveInstanceArgs)
+		-- Save Selected (uses Explorer selection)
+		local LabelSelected = Lib.Label.new()
+		LabelSelected.Gui.Parent = window.GuiElems.Content
+		LabelSelected.Size = UDim2.new(0.5,0, 0,20)
+		LabelSelected.Position = UDim2.new(0.5,0, 1,-20)
+		LabelSelected.Gui.Text = "Save Selected"
+		LabelSelected.Gui.TextXAlignment = Enum.TextXAlignment.Center
+		
+		local SelectedButton = Instance.new("TextButton")
+		SelectedButton.Parent = BackgroundButton.Gui
+		SelectedButton.Size = UDim2.new(0.5,0, 1,0)
+		SelectedButton.Position = UDim2.new(0.5,0, 0,0)
+		SelectedButton.Transparency = 1
+		
+		-- Cleans a filename of characters illegal on disk
+		local function sanitize(name)
+			if env.parsefile then
+				return env.parsefile(name)
+			end
+			return tostring(name):gsub("[*\\/?:<>|\"]+", ""):sub(1, 175)
+		end
+		
+		-- Makes sure the target folder exists before writing
+		local function ensureFolder(path)
+			if not env.makefolder or not env.isfolder then return end
+			local segs = string.split(path, "/")
+			table.remove(segs) -- drop the file part
+			local acc = ""
+			for _, seg in ipairs(segs) do
+				acc = (acc == "" and seg) or (acc.."/"..seg)
+				if acc ~= "" and not env.isfolder(acc) then
+					pcall(env.makefolder, acc)
+				end
+			end
+		end
+		
+		-- Shared save routine
+		local function doSave(rootObj, rawName, label)
+			if Saving then
+				window:SetTitle("Save Instance - Busy")
+				return
+			end
+			if not rootObj then
+				window:SetTitle("Save Instance - Nothing selected")
+				task.wait(3)
+				window:SetTitle("Save Instance")
+				return
+			end
+			Saving = true
+			local resolvedName = sanitize(rawName:gsub("{TIMESTAMP}", os.date("%d-%m-%Y_%H-%M-%S")))
+			ensureFolder(resolvedName)
+			window:SetTitle("Save Instance - Saving ("..label..")")
+			local s, result = pcall(env.saveinstance, rootObj, resolvedName, SaveInstanceArgs)
 			if s then
 				window:SetTitle("Save Instance - Saved")
 			else
 				window:SetTitle("Save Instance - Error")
-				task.spawn(error("Failed to save the game: "..result))
+				warn("[Dex SaveInstance] Failed to save: "..tostring(result))
 			end
 			task.wait(5)
 			window:SetTitle("Save Instance")
-			---env.saveinstance(game, fileName, SaveInstanceArgs)
+			Saving = false
+		end
+		
+		FilenameTextBox.TextBox.Text = fileName
+		Button.MouseButton1Click:Connect(function()
+			doSave(game, FilenameTextBox.TextBox.Text, "game")
+		end)
+		SelectedButton.MouseButton1Click:Connect(function()
+			local sel = Explorer and Explorer.Selection and Explorer.Selection.List
+			if not sel or #sel == 0 then
+				window:SetTitle("Save Instance - Nothing selected")
+				task.wait(3)
+				window:SetTitle("Save Instance")
+				return
+			end
+			if #sel == 1 then
+				local obj = sel[1].Obj
+				doSave(obj, "Instance_"..obj.ClassName.."_"..obj.Name.."_{TIMESTAMP}", obj.Name)
+			else
+				for i = 1, #sel do
+					local obj = sel[i].Obj
+					doSave(obj, "Instance_"..obj.ClassName.."_"..obj.Name.."_"..i.."_{TIMESTAMP}", obj.Name)
+				end
+			end
 		end)
 	end
 
