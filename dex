@@ -13185,16 +13185,19 @@ local function main()
 	local Saving = false
 	
 	local SaveInstanceArgs = {
+		mode = "optimized",
 		Decompile = true,
 		DecompileTimeout = 10,
 		DecompileIgnore = {"Chat", "CoreGui", "CorePackages"},
+		IgnoreList = {},
 		NilInstances = false,
 		RemovePlayerCharacters = true,
 		SavePlayers = false,
 		MaxThreads = 3,
 		ShowStatus = true,
 		IgnoreDefaultProps = true,
-		IsolateStarterPlayer = true
+		IsolateStarterPlayer = true,
+		IgnoreNotArchivable = false,
 	}
 	
 	local function AddCheckbox(title, default)
@@ -13395,6 +13398,23 @@ local function main()
 			SaveInstanceArgs.ShowStatus = ShowStat.Toggled
 		end)
 		
+		-- Save mode: "optimized" (small, skips redundant default data) or "full" (everything)
+		local FullMode = AddCheckbox("Full Save (bigger file, nothing skipped)", SaveInstanceArgs.mode == "full")
+		FullMode.OnInput:Connect(function()
+			if FullMode.Toggled then
+				SaveInstanceArgs.mode = "full"
+				SaveInstanceArgs.IgnoreDefaultProps = false
+			else
+				SaveInstanceArgs.mode = "optimized"
+			end
+		end)
+		
+		-- Include instances flagged as non-archivable (some games hide stuff this way)
+		local IgnoreArchivable = AddCheckbox("Save Non-Archivable Instances", SaveInstanceArgs.IgnoreNotArchivable)
+		IgnoreArchivable.OnInput:Connect(function()
+			SaveInstanceArgs.IgnoreNotArchivable = IgnoreArchivable.Toggled
+		end)
+		
 		
 		-- Decompile buttons below
 		local FilenameTextBox = Lib.ViewportTextBox.new()
@@ -13476,10 +13496,21 @@ local function main()
 			Saving = true
 			local resolvedName = sanitize(rawName:gsub("{TIMESTAMP}", os.date("%d-%m-%Y_%H-%M-%S")))
 			ensureFolder(resolvedName)
-			window:SetTitle("Save Instance - Saving ("..label..")")
+
+			-- live elapsed-time ticker while the (blocking) save runs on its own thread
+			local startClock = os.clock()
+			local done = false
+			task.spawn(function()
+				while not done do
+					window:SetTitle(("Save Instance - Saving (%s) %.0fs"):format(label, os.clock() - startClock))
+					task.wait(0.5)
+				end
+			end)
+
 			local s, result = pcall(env.saveinstance, rootObj, resolvedName, SaveInstanceArgs)
+			done = true
 			if s then
-				window:SetTitle("Save Instance - Saved")
+				window:SetTitle(("Save Instance - Saved (%.1fs)"):format(os.clock() - startClock))
 			else
 				window:SetTitle("Save Instance - Error")
 				warn("[Dex SaveInstance] Failed to save: "..tostring(result))
