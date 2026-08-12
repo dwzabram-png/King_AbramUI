@@ -1771,6 +1771,15 @@ local function tablecheck(tabletocheck,instance,id)
 end
 
 function remoteHandler(data)
+    pcall(function()
+        if data and data.args then
+            for i, v in ipairs(data.args) do
+                if typeof(v) == 'table' and rawget(v, 'Event') then
+                    data.warpEvent = tostring(rawget(v, 'Event'))
+                end
+            end
+        end
+    end)
     if configs.autoblock then
         local id = data.id
 
