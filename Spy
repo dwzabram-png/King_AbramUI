@@ -42,6 +42,7 @@ local Locale = {
     btnAdvancedInfo     = "Расшир. инфо",
     btnDiscord          = "Discord",
     btnSearch           = "Поиск...",
+    btnSaveAll          = "Сохранить всё",
 
     -- подсказки (tooltips)
     tipCopyCode         = "Нажмите, чтобы скопировать код",
@@ -63,6 +64,7 @@ local Locale = {
     tipAdvancedInfo     = "[%s] Показывать больше информации о Remote",
     tipDiscord          = "Присоединиться к Discord Simple Spy",
     tipSearch           = "Фильтр логов по имени Remote",
+    tipSaveAll          = "Экспортирует все пойманные ремоуты с кодом, инфо функций и декомпиляцией. Повторы (по DebugId) пропускаются.",
 
     -- статусы (TextLabel)
     stCopied            = "Успешно скопировано!",
@@ -82,6 +84,10 @@ local Locale = {
     stMissingDecompile  = "Отсутствует функция (decompile)",
     stSourceNotFoundEx  = "Источник не найден!",
     stGenFuncInfo       = "Готово! Инфо функции сгенерировано сериализатором Simple Spy V3.",
+    stSaveAllWorking    = "Сохранение всех Remote...",
+    stSaveAllBusy       = "Сохранение уже выполняется",
+    stSaveAllFile       = "Сохранено Remote: %d. Файл: %s",
+    stSaveAllErr        = "Ошибка сохранения: %s",
 
     -- состояния ENABLED/DISABLED
     enabled             = "ВКЛ",
@@ -2419,6 +2425,228 @@ function()
         request({Url = 'http://127.0.0.1:6463/rpc?v=1',Method = 'POST',Headers = {['Content-Type'] = 'application/json', Origin = 'https://discord.com'},Body = http:JSONEncode({cmd = 'INVITE_BROWSER',nonce = http:GenerateGUID(false),args = {code = 'AWS6ez9'}})})
     end
 end)
+
+local saveAllInProgress = false
+
+local function saveAllRemotesToText()
+    TextLabel.Text = L("stSaveAllWorking")
+
+    local function safeText(label, callback)
+        local ok, value = pcall(callback)
+        if ok then
+            return value == nil and "nil" or tostring(value)
+        end
+        return ("-- %s error: %s"):format(label, tostring(value))
+    end
+
+    local function buildFunctionInfo(log)
+        local func = log.Function
+        if typeof(func) ~= "function" then
+            return tostring(func or "-- Function info unavailable")
+        end
+
+        local function safeValue(label, callback)
+            local ok, value = pcall(callback)
+            if ok then
+                return value
+            end
+            return ("N/A -- %s error: %s"):format(label, tostring(value))
+        end
+
+        local lclosure = safeValue("islclosure", function()
+            return islclosure(func)
+        end) == true
+        local sourceScript = safeValue("source script", function()
+            return rawget(getfenv(func), "script")
+        end)
+        local callingScript = log.Source or nil
+        local functionInfo = {
+            info = safeValue("getinfo", function()
+                return getinfo(func)
+            end),
+            constants = lclosure and safeValue("getconstants", function()
+                return deepclone(getconstants(func))
+            end) or "N/A -- Lua Closure expected got C Closure",
+            upvalues = lclosure and safeValue("getupvalues", function()
+                return deepclone(getupvalues(func))
+            end) or "N/A -- Lua Closure expected got C Closure",
+            script = {
+                SourceScript = sourceScript or "nil",
+                CallingScript = callingScript or "nil"
+            }
+        }
+
+        if configs.advancedinfo then
+            local remote = log.Remote
+            functionInfo.advancedinfo = {
+                Metamethod = log.metamethod,
+                DebugId = {
+                    SourceScriptDebugId = typeof(sourceScript) == "Instance" and safeValue("source DebugId", function()
+                        return OldDebugId(sourceScript)
+                    end) or "N/A",
+                    CallingScriptDebugId = typeof(callingScript) == "Instance" and safeValue("calling DebugId", function()
+                        return OldDebugId(callingScript)
+                    end) or "N/A",
+                    RemoteDebugId = typeof(remote) == "Instance" and safeValue("remote DebugId", function()
+                        return OldDebugId(remote)
+                    end) or "N/A"
+                },
+                Protos = lclosure and safeValue("getprotos", function()
+                    return getprotos(func)
+                end) or "N/A -- Lua Closure expected got C Closure"
+            }
+        end
+
+        return safeText("FunctionInfo serialization", function()
+            return v2v({functionInfo = functionInfo})
+        end)
+    end
+
+    local function buildDecompile(log)
+        if type(decompile) ~= "function" then
+            return "-- Decompile unavailable: executor does not expose decompile"
+        end
+        if typeof(log.Source) ~= "Instance" then
+            return "-- Decompile unavailable: calling script was not captured"
+        end
+        if DecompiledScripts[log.Source] then
+            return DecompiledScripts[log.Source]
+        end
+
+        local ok, result = pcall(function()
+            local source = decompile(log.Source)
+            if type(source) ~= "string" then
+                error("decompile returned " .. typeof(source))
+            end
+            source = source:gsub("-- Decompiled with the Synapse X Luau decompiler.", "")
+            local sourcePath = safeText("source path", function()
+                return v2s(log.Source)
+            end)
+            return ("local script = %s\n%s"):format(sourcePath, source)
+        end)
+        if not ok then
+            return "-- Decompile error: " .. tostring(result)
+        end
+
+        DecompiledScripts[log.Source] = result
+        return result
+    end
+
+    local seen = {}
+    local sections = {}
+    local count = 0
+    local exportLogs = table.clone(logs)
+
+    for _, log in ipairs(exportLogs) do
+        local uniqueKey = log.DebugId and ("debug:" .. tostring(log.DebugId)) or log.Remote or log
+        if not seen[uniqueKey] then
+            seen[uniqueKey] = true
+            count += 1
+
+            local replayCode = safeText("GenScript", function()
+                return genScript(log.Remote, log.args or {})
+            end)
+            if log.Blocked then
+                replayCode = "-- This Remote was blocked by SimpleSpy\n" .. replayCode
+            end
+
+            local remoteClass = typeof(log.Remote) == "Instance" and log.Remote.ClassName or typeof(log.Remote)
+            local section = table.concat({
+                ("===== REMOTE %d ====="):format(count),
+                "Name: " .. tostring(log.Name),
+                "Class: " .. tostring(remoteClass),
+                "DebugId: " .. tostring(log.DebugId),
+                "Metamethod: " .. tostring(log.metamethod),
+                "Blocked: " .. tostring(log.Blocked == true),
+                "Remote path: " .. safeText("Remote path", function() return v2s(log.Remote) end),
+                "Source path: " .. (log.Source and safeText("Source path", function() return v2s(log.Source) end) or "nil"),
+                "",
+                "--- REPLAY CODE ---",
+                replayCode,
+                "",
+                "--- FUNCTION INFO ---",
+                buildFunctionInfo(log),
+                "",
+                "--- DECOMPILE ---",
+                buildDecompile(log),
+                "",
+                "--- ARGUMENTS ---",
+                safeText("Arguments serialization", function() return v2v({args = log.args or {}}) end),
+                "",
+                "--- RETURN VALUE ---",
+                safeText("Return value serialization", function() return v2v({returnValue = log.returnvalue or {}}) end),
+                ""
+            }, "\n")
+            table.insert(sections, section)
+        end
+    end
+
+    if type(writefile) ~= "function" then
+        error("executor does not expose writefile")
+    end
+
+    local exportFolder = "."
+    if type(isfolder) == "function" and type(makefolder) == "function" then
+        local folderOk = pcall(function()
+            if not isfolder("SimpleSpy") then
+                makefolder("SimpleSpy")
+            end
+            if not isfolder("SimpleSpy/Exports") then
+                makefolder("SimpleSpy/Exports")
+            end
+        end)
+        if folderOk then
+            exportFolder = "SimpleSpy/Exports"
+        end
+    end
+
+    local unixTimestamp = tostring(DateTime.now().UnixTimestampMillis)
+    local dateText = safeText("date", function()
+        return os.date("%Y-%m-%d %H:%M:%S")
+    end)
+    local filename = exportFolder == "."
+        and ("SimpleSpy_All_%s.txt"):format(unixTimestamp)
+        or ("%s/SimpleSpy_All_%s.txt"):format(exportFolder, unixTimestamp)
+    local header = table.concat({
+        "SimpleSpy V3 - Save All",
+        "Date: " .. dateText,
+        "Unique remotes: " .. tostring(count),
+        string.rep("=", 72),
+        ""
+    }, "\n")
+    local output = header .. table.concat(sections, "\n")
+    writefile(filename, output)
+
+    TextLabel.Text = L("stSaveAllFile", count, filename)
+    pcall(function()
+        codebox:setRaw(("Saved %d unique remotes to:\n%s"):format(count, filename))
+    end)
+    return filename
+end
+
+-- Save All button - exports all unique remotes to a text file
+newButton(
+    L("btnSaveAll"),
+    function() return L("tipSaveAll") end,
+    function()
+        if saveAllInProgress then
+            TextLabel.Text = L("stSaveAllBusy")
+            return
+        end
+
+        saveAllInProgress = true
+        local ok, result = pcall(saveAllRemotesToText)
+        saveAllInProgress = false
+
+        if not ok then
+            local message = L("stSaveAllErr", tostring(result))
+            TextLabel.Text = message
+            pcall(function()
+                codebox:setRaw(message)
+            end)
+        end
+    end
+)
 
 if configs.supersecretdevtoggle then
     newButton("Load SSV2.2",function()
