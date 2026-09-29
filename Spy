@@ -277,22 +277,45 @@ local GuiInset = game:GetService("GuiService"):GetGuiInset() :: Vector2 -- pulle
 local Background
 
 local Theme = {
-    accent      = Color3.fromRGB(112, 132, 245), -- акцент (индиго)
-    accentSoft  = Color3.fromRGB(80,  92,  190),
-    window      = Color3.fromRGB(26,  26,  32),  -- тело окна (видно на скруглённых углах)
-    topbar      = Color3.fromRGB(18,  18,  23),
-    topbar2     = Color3.fromRGB(30,  30,  40),
-    panel       = Color3.fromRGB(30,  30,  38),  -- левая панель
-    panelAlt    = Color3.fromRGB(23,  23,  29),  -- правая панель
-    code        = Color3.fromRGB(15,  15,  19),  -- codebox
-    search      = Color3.fromRGB(21,  21,  27),
-    card        = Color3.fromRGB(44,  44,  54),  -- тело карточки
-    cardHover   = Color3.fromRGB(58,  58,  72),
-    btn         = Color3.fromRGB(34,  34,  42),  -- плоские кнопки топбара
-    stroke      = Color3.fromRGB(70,  72,  90),
-    text        = Color3.fromRGB(236, 238, 246),
-    textDim     = Color3.fromRGB(150, 152, 165),
+    accent      = Color3.fromRGB(124, 144, 255), -- основной акцент (индиго)
+    accent2     = Color3.fromRGB(178, 120, 255), -- второй тон для градиентов
+    accentSoft  = Color3.fromRGB(70,  84,  166), -- приглушённый акцент (скроллбары/обводки)
+    window      = Color3.fromRGB(20, 21, 28),    -- тело окна (видно на скруглённых углах)
+    topbar      = Color3.fromRGB(27, 29, 39),
+    topbar2     = Color3.fromRGB(38, 42, 57),
+    panel       = Color3.fromRGB(29, 31, 41),    -- левая панель (список)
+    panelAlt    = Color3.fromRGB(23, 24, 32),    -- правая панель (контент)
+    code        = Color3.fromRGB(12, 13, 18),    -- codebox
+    search      = Color3.fromRGB(18, 19, 26),
+    card        = Color3.fromRGB(38, 41, 54),    -- тело карточки
+    cardHover   = Color3.fromRGB(56, 61, 82),
+    btn         = Color3.fromRGB(37, 40, 53),    -- плоские кнопки топбара
+    stroke      = Color3.fromRGB(62, 68, 92),
+    line        = Color3.fromRGB(44, 47, 63),    -- тонкие разделители
+    text        = Color3.fromRGB(238, 240, 248),
+    textDim     = Color3.fromRGB(146, 151, 170),
+    ok          = Color3.fromRGB(88, 214, 132),
+    warn        = Color3.fromRGB(240, 196, 84),
+    danger      = Color3.fromRGB(226, 92, 92),
 }
+
+-- ==========================================================================
+-- [lowkeyy.lua] LAYOUT — вся геометрия окна в одном месте. Меняешь тут —
+-- тянутся все панели, твины раскрытия и границы перетаскивания.
+-- ==========================================================================
+local LAYOUT = {
+    winW      = 500,  -- ширина окна
+    winH      = 320,  -- высота окна (раскрытого)
+    topbar    = 34,   -- высота шапки
+    side      = 160,  -- ширина левой панели (список ремоутов)
+    codeH     = 144,  -- высота codebox в боковом виде
+    stripH    = 118,  -- высота полосы кнопок функций
+    gap       = 8,    -- зазор между codebox и полосой кнопок
+    searchRow = 32,   -- высота строки поиска
+}
+-- производные: bottomClamp — низ для codebox/полосы, logPad — отступ списка снизу
+local BOTTOM_CLAMP = LAYOUT.stripH + LAYOUT.gap
+local LOG_PAD      = LAYOUT.searchRow + 6
 
 -- ==========================================================================
 -- [lowkeyy.lua] ANIM CORE — один слой твинов: пресеты, реестр, каскад, micro-UX
@@ -345,25 +368,25 @@ function Anim.stagger(step)
     return staggerIndex * step
 end
 
--- Hover: scale 1.0 -> 1.05 + подсветка. Click: 1.0 -> 0.95 -> 1.05 (Back Out).
+-- Hover: scale 1.0 -> 1.03 (мягко, без наезда соседей). Click: 0.96 -> 1.03.
 function Anim.micro(card, surface, accent)
     local scale = card:FindFirstChildOfClass("UIScale")
     if not scale then scale = Create("UIScale", {Parent = card, Scale = 1}) end
-    local baseColor = surface.BackgroundColor3
+    local baseColor = surface and surface.BackgroundColor3 or Color3.new(1,1,1)
     surface.MouseEnter:Connect(function()
-        Anim.tween(scale, "hover", Anim.Presets.Hover, {Scale = 1.05})
+        Anim.tween(scale, "hover", Anim.Presets.Hover, {Scale = 1.03})
         if accent then Anim.tween(surface, "hc", Anim.Presets.Hover, {BackgroundColor3 = accent}) end
     end)
     surface.MouseLeave:Connect(function()
         Anim.tween(scale, "hover", Anim.Presets.Hover, {Scale = 1})
-        Anim.tween(surface, "hc", Anim.Presets.Hover, {BackgroundColor3 = baseColor})
+        if accent then Anim.tween(surface, "hc", Anim.Presets.Hover, {BackgroundColor3 = baseColor}) end
     end)
     surface.MouseButton1Down:Connect(function()
-        Anim.tween(scale, "push", Anim.Presets.Press, {Scale = 0.95})
-        Anim.ripple(card, accent or Theme.accent)
+        Anim.tween(scale, "push", Anim.Presets.Press, {Scale = 0.96})
+        Anim.ripple(card, Theme.accent)
     end)
     surface.MouseButton1Up:Connect(function()
-        Anim.tween(scale, "push", Anim.Presets.Pop, {Scale = 1.05})
+        Anim.tween(scale, "push", Anim.Presets.Pop, {Scale = 1.03})
     end)
 end
 
@@ -503,28 +526,38 @@ local Highlight = (isfile and loadfile and isfile("Highlight.lua") and loadfile(
 
 local SimpleSpy3 = Create("ScreenGui",{ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling})
 local Storage = Create("Folder",{})
-Background = Create("Frame",{Parent = SimpleSpy3,Name = "Background",BackgroundColor3 = Theme.window,BackgroundTransparency = 0,Position = UDim2.new(0, 500, 0, 200),Size = UDim2.new(0, 450, 0, 268),ClipsDescendants = true,ZIndex = 0})
-Create("UICorner",{Parent = Background,CornerRadius = UDim.new(0, 10)})
-Create("UIStroke",{Parent = Background,Color = Theme.stroke,Thickness = 1,Transparency = 0.35})
+-- хелперы скругления/обводки/градиента
+local function round(obj, r) return Create("UICorner", {Parent = obj, CornerRadius = UDim.new(0, r or 8)}) end
+local function line(obj, color, th, tr) return Create("UIStroke", {Parent = obj, Color = color or Theme.line, Thickness = th or 1, Transparency = tr or 0.4}) end
 
-local LeftPanel  = Create("CanvasGroup",{Parent = Background,BackgroundColor3 = Theme.panel,BorderSizePixel = 0,ClipsDescendants = true,Position = UDim2.new(0, 0, 0, 19),Size = UDim2.new(0, 131, 0, 249)})
-local SearchBox = Create("TextBox",{Parent = LeftPanel,BackgroundColor3 = Theme.search,BorderSizePixel = 0,Position = UDim2.new(0, 4, 0, 4),Size = UDim2.new(1, -8, 0, 20),Font = Enum.Font.Gotham,PlaceholderText = Locale.btnSearch,PlaceholderColor3 = Theme.textDim,Text = "",TextColor3 = Theme.text,TextSize = 13,ClearTextOnFocus = false,TextXAlignment = Enum.TextXAlignment.Left,TextTruncate = Enum.TextTruncate.AtEnd})
-Create("UICorner",{Parent = SearchBox,CornerRadius = UDim.new(0, 5)})
-Create("UIPadding",{Parent = SearchBox,PaddingLeft = UDim.new(0, 8),PaddingRight = UDim.new(0, 8)})
-local LogList = Create("ScrollingFrame",{Parent = LeftPanel,Active = true,BackgroundColor3 = Color3.new(1, 1, 1),BackgroundTransparency = 1,BorderSizePixel = 0,ClipsDescendants = true,Position = UDim2.new(0, 0, 0, 28),Size = UDim2.new(0, 131, 0, 213),CanvasSize = UDim2.new(0, 0, 0, 0),ScrollBarThickness = 3,ScrollBarImageColor3 = Theme.accentSoft})
-local UIListLayout = Create("UIListLayout",{Parent = LogList,HorizontalAlignment = Enum.HorizontalAlignment.Center,SortOrder = Enum.SortOrder.LayoutOrder,Padding = UDim.new(0, 2)})
-local RightPanel = Create("CanvasGroup",{Parent = Background,BackgroundColor3 = Theme.panelAlt,BorderSizePixel = 0,ClipsDescendants = true,Position = UDim2.new(0, 131, 0, 19),Size = UDim2.new(0, 319, 0, 249)})
-local CodeBox = Create("Frame",{Parent = RightPanel,BackgroundColor3 = Theme.code,BorderSizePixel = 0,ClipsDescendants = true,Size = UDim2.new(0, 319, 0, 119)})
-local ScrollingFrame = Create("ScrollingFrame",{Parent = RightPanel,Active = true,BackgroundColor3 = Color3.new(1, 1, 1),BackgroundTransparency = 1,BorderSizePixel = 0,ClipsDescendants = true,Position = UDim2.new(0, 0, 0.5, 0),Size = UDim2.new(1, 0, 0.5, -9),CanvasSize = UDim2.new(0, 0, 0, 0),ScrollBarThickness = 3,ScrollBarImageColor3 = Theme.accentSoft})
-local UIGridLayout = Create("UIGridLayout",{Parent = ScrollingFrame,HorizontalAlignment = Enum.HorizontalAlignment.Center,SortOrder = Enum.SortOrder.LayoutOrder,CellPadding = UDim2.new(0, 4, 0, 4),CellSize = UDim2.new(0, 94, 0, 27)})
-local TopBar = Create("Frame",{Parent = Background,Name = "TopBar",BackgroundColor3 = Theme.topbar,BorderSizePixel = 0,Size = UDim2.new(0, 450, 0, 19),ClipsDescendants = true})
-local Simple = Create("TextButton",{Parent = TopBar,BackgroundColor3 = Color3.new(1, 1, 1),AutoButtonColor = false,BackgroundTransparency = 1,Position = UDim2.new(0, 10, 0, 0),Size = UDim2.new(0, 57, 0, 19),Font = Enum.Font.GothamBold,Text = "SimpleSpy",TextColor3 = Theme.text,TextSize = 13,TextXAlignment = Enum.TextXAlignment.Left})
+Background = Create("Frame",{Parent = SimpleSpy3,Name = "Background",BackgroundColor3 = Theme.window,BackgroundTransparency = 0,Position = UDim2.new(0, 500, 0, 200),Size = UDim2.fromOffset(LAYOUT.winW, LAYOUT.winH),ClipsDescendants = true,ZIndex = 0})
+round(Background, 14)
+line(Background, Theme.stroke, 1, 0.25)
+-- мягкое внешнее свечение-ореол под акцентом (тонкая вторая обводка)
+Create("UIStroke",{Parent = Background,Color = Theme.accentSoft,Thickness = 3,Transparency = 0.9})
 
--- хелпер: плоская кнопка топбара со скруглением и hover-подсветкой
+-- верхняя шапка
+local TopBar = Create("Frame",{Parent = Background,Name = "TopBar",BackgroundColor3 = Theme.topbar,BorderSizePixel = 0,Size = UDim2.new(1, 0, 0, LAYOUT.topbar),ClipsDescendants = true})
+-- градиент — на отдельном слое (UIGradient наследуется детьми, тонировать кнопки не нужно)
+local topGrad = Create("Frame",{Parent = TopBar,BackgroundColor3 = Theme.topbar,BorderSizePixel = 0,Size = UDim2.new(1, 0, 1, 0),ZIndex = 0})
+Create("UIGradient",{Parent = topGrad,Rotation = 90,Color = ColorSequence.new(Theme.topbar2, Theme.topbar)})
+-- тонкая акцентная нить внизу шапки
+local topHair = Create("Frame",{Parent = TopBar,BackgroundColor3 = Theme.accent,BorderSizePixel = 0,Position = UDim2.new(0, 0, 1, -1),Size = UDim2.new(1, 0, 0, 1),ZIndex = 4})
+Create("UIGradient",{Parent = topHair,Rotation = 0,Transparency = NumberSequence.new{
+    NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1)}})
+
+local Simple = Create("TextButton",{Parent = TopBar,BackgroundColor3 = Color3.new(1, 1, 1),AutoButtonColor = false,BackgroundTransparency = 1,Position = UDim2.new(0, 28, 0, 0),Size = UDim2.new(1, -140, 0, LAYOUT.topbar),Font = Enum.Font.GothamBold,Text = "SimpleSpy",TextColor3 = Theme.text,TextSize = 15,TextXAlignment = Enum.TextXAlignment.Left,TextTruncate = Enum.TextTruncate.AtEnd})
+
+-- индикатор состояния хука (маленький светодиод у логотипа)
+local statusDot = Create("Frame",{Parent = TopBar,BackgroundColor3 = Theme.ok,BorderSizePixel = 0,Position = UDim2.new(0, 14, 0.5, -3.5),Size = UDim2.fromOffset(7, 7),ZIndex = 5})
+round(statusDot, 99)
+local dotStroke = Create("UIStroke",{Parent = statusDot,Color = Theme.ok,Thickness = 1.5,Transparency = 0.5})
+
+-- хелпер: плоская кнопка шапки со скруглением и hover-подсветкой
 local function topButton(posX, icon, hover)
-    local b = Create("TextButton",{Parent = TopBar,BackgroundColor3 = Theme.btn,BorderSizePixel = 0,Position = UDim2.new(1, posX, 0, 0),Size = UDim2.new(0, 19, 0, 19),Font = Enum.Font.SourceSans,Text = "",AutoButtonColor = false})
-    Create("UICorner",{Parent = b,CornerRadius = UDim.new(0, 4)})
-    local img = Create("ImageLabel",{Parent = b,BackgroundTransparency = 1,Position = UDim2.new(0, 5, 0, 5),Size = UDim2.new(0, 9, 0, 9),Image = icon,ImageColor3 = Theme.textDim})
+    local b = Create("TextButton",{Parent = TopBar,BackgroundColor3 = Theme.btn,BorderSizePixel = 0,Position = UDim2.new(1, posX, 0, (LAYOUT.topbar - 24) / 2),Size = UDim2.fromOffset(24, 24),Font = Enum.Font.SourceSans,Text = "",AutoButtonColor = false,ZIndex = 5})
+    round(b, 7)
+    local img = Create("ImageLabel",{Parent = b,BackgroundTransparency = 1,Position = UDim2.new(0.5, 0, 0.5, 0),AnchorPoint = Vector2.new(0.5, 0.5),Size = UDim2.fromOffset(11, 11),Image = icon,ImageColor3 = Theme.textDim})
     b.MouseEnter:Connect(function()
         Anim.tween(b, "hb", Anim.Presets.Hover, {BackgroundColor3 = hover or Theme.cardHover})
         Anim.tween(img, "hi", Anim.Presets.Hover, {ImageColor3 = Color3.new(1,1,1)})
@@ -533,39 +566,67 @@ local function topButton(posX, icon, hover)
         Anim.tween(b, "hb", Anim.Presets.Hover, {BackgroundColor3 = Theme.btn})
         Anim.tween(img, "hi", Anim.Presets.Hover, {ImageColor3 = Theme.textDim})
     end)
+    b.MouseButton1Down:Connect(function() Anim.tween(b, "pr", Anim.Presets.Press, {BackgroundTransparency = 0.15}) end)
+    b.MouseButton1Up:Connect(function() Anim.tween(b, "pr", Anim.Presets.Hover, {BackgroundTransparency = 0}) end)
     return b
 end
 
-local CloseButton    = topButton(-24, "http://www.roblox.com/asset/?id=5597086202", Color3.fromRGB(220, 70, 70))
-local MaximizeButton = topButton(-45, "http://www.roblox.com/asset/?id=5597108117")
-local MinimizeButton = topButton(-66, "http://www.roblox.com/asset/?id=5597105827")
+-- порядок справа налево: закрыть / развернуть / свернуть
+local CloseButton    = topButton(-36, "http://www.roblox.com/asset/?id=5597086202", Theme.danger)
+local MaximizeButton = topButton(-66, "http://www.roblox.com/asset/?id=5597108117")
+local MinimizeButton = topButton(-96, "http://www.roblox.com/asset/?id=5597105827")
 
-local ToolTip = Create("Frame",{Parent = SimpleSpy3,BackgroundColor3 = Color3.fromRGB(16, 16, 20),BackgroundTransparency = 0.05,BorderColor3 = Theme.stroke,Size = UDim2.new(0, 200, 0, 50),ZIndex = 3,Visible = false})
-Create("UICorner",{Parent = ToolTip,CornerRadius = UDim.new(0, 6)})
-Create("UIStroke",{Parent = ToolTip,Color = Theme.accentSoft,Thickness = 1,Transparency = 0.5})
-local TextLabel = Create("TextLabel",{Parent = ToolTip,BackgroundTransparency = 1,Position = UDim2.new(0, 8, 0, 6),Size = UDim2.new(1, -16, 1, -12),ZIndex = 3,Font = Enum.Font.Gotham,Text = "",TextColor3 = Theme.text,TextSize = 13,TextWrapped = true,TextXAlignment = Enum.TextXAlignment.Left,TextYAlignment = Enum.TextYAlignment.Top})
+-- ===== контент под шапкой =====
+-- левая панель: поиск + список ремоутов
+local LeftPanel  = Create("CanvasGroup",{Parent = Background,BackgroundColor3 = Theme.panel,BorderSizePixel = 0,ClipsDescendants = true,Position = UDim2.new(0, 0, 0, LAYOUT.topbar),Size = UDim2.fromOffset(LAYOUT.side, LAYOUT.winH - LAYOUT.topbar)})
+-- разделительная вертикаль между панелями
+local vDivider = Create("Frame",{Parent = Background,BackgroundColor3 = Theme.line,BorderSizePixel = 0,Position = UDim2.new(0, LAYOUT.side - 1, 0, LAYOUT.topbar),Size = UDim2.fromOffset(1, LAYOUT.winH - LAYOUT.topbar),ZIndex = 6})
+local SearchBox = Create("TextBox",{Parent = LeftPanel,BackgroundColor3 = Theme.search,BorderSizePixel = 0,Position = UDim2.new(0, 8, 0, 8),Size = UDim2.new(1, -16, 0, LAYOUT.searchRow - 12),Font = Enum.Font.Gotham,PlaceholderText = "  " .. Locale.btnSearch,PlaceholderColor3 = Theme.textDim,Text = "",TextColor3 = Theme.text,TextSize = 13,ClearTextOnFocus = false,TextXAlignment = Enum.TextXAlignment.Left,TextTruncate = Enum.TextTruncate.AtEnd,ZIndex = 2})
+round(SearchBox, 8)
+line(SearchBox, Theme.line, 1, 0.3)
+Create("UIPadding",{Parent = SearchBox,PaddingLeft = UDim.new(0, 8),PaddingRight = UDim.new(0, 8)})
+
+local LogList = Create("ScrollingFrame",{Parent = LeftPanel,Active = true,BackgroundColor3 = Color3.new(1, 1, 1),BackgroundTransparency = 1,BorderSizePixel = 0,ClipsDescendants = true,Position = UDim2.new(0, 0, 0, LOG_PAD),Size = UDim2.new(0, LAYOUT.side, 1, -LOG_PAD - 6),CanvasSize = UDim2.new(0, 0, 0, 0),ScrollBarThickness = 3,ScrollBarImageColor3 = Theme.accentSoft})
+local UIListLayout = Create("UIListLayout",{Parent = LogList,HorizontalAlignment = Enum.HorizontalAlignment.Center,SortOrder = Enum.SortOrder.LayoutOrder,Padding = UDim.new(0, 3)})
+
+-- правая панель: codebox + полоса кнопок функций
+local RightPanel = Create("CanvasGroup",{Parent = Background,BackgroundColor3 = Theme.panelAlt,BorderSizePixel = 0,ClipsDescendants = true,Position = UDim2.new(0, LAYOUT.side, 0, LAYOUT.topbar),Size = UDim2.fromOffset(LAYOUT.winW - LAYOUT.side, LAYOUT.winH - LAYOUT.topbar)})
+local codeWrap = Create("Frame",{Parent = RightPanel,Name = "CodeWrap",BackgroundColor3 = Theme.code,BorderSizePixel = 0,ClipsDescendants = true,Position = UDim2.new(0, 8, 0, 8),Size = UDim2.new(1, -16, 0, LAYOUT.codeH)})
+round(codeWrap, 10)
+line(codeWrap, Theme.line, 1, 0.25)
+-- отдельный подложечный слой под градиент, чтобы не тонировать текст кода
+local codeBg = Create("Frame",{Parent = codeWrap,BackgroundColor3 = Theme.code,BorderSizePixel = 0,Position = UDim2.new(0, 0, 0, 20),Size = UDim2.new(1, 0, 1, -20),ZIndex = 1})
+local CodeBox = Create("Frame",{Parent = codeWrap,BackgroundTransparency = 1,BorderSizePixel = 0,ClipsDescendants = true,Position = UDim2.new(0, 0, 0, 20),Size = UDim2.new(1, 0, 1, -20),ZIndex = 2})
+local ScrollingFrame = Create("ScrollingFrame",{Parent = RightPanel,Active = true,BackgroundColor3 = Color3.new(1, 1, 1),BackgroundTransparency = 1,BorderSizePixel = 0,ClipsDescendants = true,Position = UDim2.new(0, 8, 0, 8 + LAYOUT.codeH + LAYOUT.gap),Size = UDim2.new(1, -16, 0, LAYOUT.stripH),CanvasSize = UDim2.new(0, 0, 0, 0),ScrollBarThickness = 3,ScrollBarImageColor3 = Theme.accentSoft})
+local UIGridLayout = Create("UIGridLayout",{Parent = ScrollingFrame,HorizontalAlignment = Enum.HorizontalAlignment.Center,SortOrder = Enum.SortOrder.LayoutOrder,CellPadding = UDim2.new(0, 5, 0, 5),CellSize = UDim2.new(0, 105, 0, 30)})
+
+-- заголовок codebox ("Remote Script" + точка-индикатор)
+local codeTitle = Create("TextLabel",{Parent = codeWrap,BackgroundTransparency = 1,Position = UDim2.new(0, 12, 0, 7),Size = UDim2.new(1, -24, 0, 12),Font = Enum.Font.GothamBold,Text = "REMOTE SCRIPT",TextColor3 = Theme.textDim,TextSize = 10,TextXAlignment = Enum.TextXAlignment.Left,ZIndex = 3})
+Create("UITextSizeConstraint",{Parent = codeTitle,MaxTextSize = 10,MinTextSize = 10})
+
+local ToolTip = Create("Frame",{Parent = SimpleSpy3,BackgroundColor3 = Theme.topbar,BackgroundTransparency = 0.03,BorderSizePixel = 0,Size = UDim2.new(0, 220, 0, 50),ZIndex = 8,Visible = false})
+round(ToolTip, 8)
+line(ToolTip, Theme.accentSoft, 1, 0.4)
+local TextLabel = Create("TextLabel",{Parent = ToolTip,BackgroundTransparency = 1,Position = UDim2.new(0, 10, 0, 7),Size = UDim2.new(1, -20, 1, -14),ZIndex = 8,Font = Enum.Font.Gotham,Text = "",TextColor3 = Theme.text,TextSize = 13,TextWrapped = true,TextXAlignment = Enum.TextXAlignment.Left,TextYAlignment = Enum.TextYAlignment.Top})
 
 -- ==========================================================================
 -- [lowkeyy.lua] ЖИВОЙ ФОН — shimmer по TopBar + мягкий градиент в CodeBox
 -- ==========================================================================
-TopBar.ClipsDescendants = true
--- мягкий вертикальный градиент топбара (один UIGradient, без оверхеда)
-Create("UIGradient",{Parent = TopBar,Rotation = 90,Color = ColorSequence.new(Theme.topbar2, Theme.topbar)})
-local shimmer = Create("Frame",{Parent = TopBar,BackgroundColor3 = Color3.new(1,1,1),BackgroundTransparency = 0,BorderSizePixel = 0,Size = UDim2.new(0, 90, 1, 0),Position = UDim2.new(0, -90, 0, 0),ZIndex = 0})
-Create("UIGradient",{Parent = shimmer,Rotation = 0,Color = ColorSequence.new(Theme.accent, Theme.accent),Transparency = NumberSequence.new{
+-- бегущий акцентный блик по шапке
+local shimmer = Create("Frame",{Parent = TopBar,BackgroundColor3 = Color3.new(1,1,1),BackgroundTransparency = 0,BorderSizePixel = 0,Size = UDim2.new(0, 110, 1, 0),Position = UDim2.new(0, -110, 0, 0),ZIndex = 0})
+Create("UIGradient",{Parent = shimmer,Rotation = 0,Color = ColorSequence.new(Theme.accent, Theme.accent2),Transparency = NumberSequence.new{
     NumberSequenceKeypoint.new(0, 1),
-    NumberSequenceKeypoint.new(0.5, 0.72),
+    NumberSequenceKeypoint.new(0.5, 0.65),
     NumberSequenceKeypoint.new(1, 1)
 }})
--- один твин на весь цикл: без RenderStepped, RepeatCount = -1
-TweenService:Create(shimmer, TweenInfo.new(2.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, false, 0.6),
+TweenService:Create(shimmer, TweenInfo.new(3.0, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, false, 0.6),
     {Position = UDim2.new(1, 0, 0, 0)}):Play()
 
 -- Градиент CodeBox дышит через Offset: один property-set в кадр, не создание твина
-local codeGrad = Create("UIGradient",{Parent = CodeBox,Rotation = 120,Color = ColorSequence.new(Theme.accentSoft, Theme.code),Transparency = NumberSequence.new{
-    NumberSequenceKeypoint.new(0, 0.9),
-    NumberSequenceKeypoint.new(0.5, 0.55),
-    NumberSequenceKeypoint.new(1, 0.9)
+local codeGrad = Create("UIGradient",{Parent = codeBg,Rotation = 130,Color = ColorSequence.new(Theme.accentSoft, Theme.code),Transparency = NumberSequence.new{
+    NumberSequenceKeypoint.new(0, 0.92),
+    NumberSequenceKeypoint.new(0.5, 0.5),
+    NumberSequenceKeypoint.new(1, 0.92)
 }})
 local codeGradPhase = 0
 
@@ -737,25 +798,21 @@ local function ThreadIsNotDead(thread: thread): boolean
     return status(thread) ~= "dead"
 end
 
---- Scales the ToolTip to fit containing text
+--- Scales the ToolTip to fit containing text (учитываем паддинг 10/7)
 function scaleToolTip()
-    local size = TextService:GetTextSize(TextLabel.Text, TextLabel.TextSize, TextLabel.Font, Vector2.new(196, math.huge))
+    local size = TextService:GetTextSize(TextLabel.Text, TextLabel.TextSize, TextLabel.Font, Vector2.new(200, math.huge))
     TextLabel.Size = UDim2.new(0, size.X, 0, size.Y)
-    ToolTip.Size = UDim2.new(0, size.X + 4, 0, size.Y + 4)
+    ToolTip.Size = UDim2.new(0, size.X + 20, 0, size.Y + 14)
 end
 
 --- Executed when the toggle button (the SimpleSpy logo) is hovered over
 function onToggleButtonHover()
-    if not toggle then
-        TweenService:Create(Simple, TweenInfo.new(0.5), {TextColor3 = Color3.fromRGB(252, 51, 51)}):Play()
-    else
-        TweenService:Create(Simple, TweenInfo.new(0.5), {TextColor3 = Color3.fromRGB(68, 206, 91)}):Play()
-    end
+    Anim.tween(Simple, "th", Anim.Presets.Hover, {TextColor3 = Theme.accent})
 end
 
 --- Executed when the toggle button is unhovered over
 function onToggleButtonUnhover()
-    TweenService:Create(Simple, TweenInfo.new(0.5), {TextColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+    Anim.tween(Simple, "th", Anim.Presets.Hover, {TextColor3 = Theme.text})
 end
 
 --- Executed when the X button is hovered over
@@ -768,14 +825,17 @@ function onXButtonUnhover()
     Anim.tween(CloseButton, "hb", Anim.Presets.Hover, {BackgroundColor3 = Theme.btn})
 end
 
+--- Светодиод состояния хука: зелёный = ловим ремоуты, красный = пауза
+function updateStatusDot()
+    local c = toggle and Theme.ok or Theme.danger
+    Anim.tween(statusDot, "dot", Anim.Presets.Glow, {BackgroundColor3 = c})
+    dotStroke.Color = c
+end
+
 --- Toggles the remote spy method (when button clicked)
 function onToggleButtonClick()
-    if toggle then
-        TweenService:Create(Simple, TweenInfo.new(0.5), {TextColor3 = Color3.fromRGB(252, 51, 51)}):Play()
-    else
-        TweenService:Create(Simple, TweenInfo.new(0.5), {TextColor3 = Color3.fromRGB(68, 206, 91)}):Play()
-    end
     toggleSpyMethod()
+    updateStatusDot()
 end
 
 --- Reconnects bringBackOnResize if the current viewport changes and also connects it initially
@@ -804,18 +864,18 @@ function bringBackOnResize()
     local currentX = Background.AbsolutePosition.X
     local currentY = Background.AbsolutePosition.Y
     local viewportSize = workspace.CurrentCamera.ViewportSize
-    if (currentX < 0) or (currentX > (viewportSize.X - (sideClosed and 131 or Background.AbsoluteSize.X))) then
+    if (currentX < 0) or (currentX > (viewportSize.X - (sideClosed and LAYOUT.side or Background.AbsoluteSize.X))) then
         if currentX < 0 then
             currentX = 0
         else
-            currentX = viewportSize.X - (sideClosed and 131 or Background.AbsoluteSize.X)
+            currentX = viewportSize.X - (sideClosed and LAYOUT.side or Background.AbsoluteSize.X)
         end
     end
-    if (currentY < 0) or (currentY > (viewportSize.Y - (closed and 19 or Background.AbsoluteSize.Y) - GuiInset.Y)) then
+    if (currentY < 0) or (currentY > (viewportSize.Y - (closed and LAYOUT.topbar or Background.AbsoluteSize.Y) - GuiInset.Y)) then
         if currentY < 0 then
             currentY = 0
         else
-            currentY = viewportSize.Y - (closed and 19 or Background.AbsoluteSize.Y) - GuiInset.Y
+            currentY = viewportSize.Y - (closed and LAYOUT.topbar or Background.AbsoluteSize.Y) - GuiInset.Y
         end
     end
     TweenService.Create(TweenService, Background, TweenInfo.new(0.1), {Position = UDim2.new(0, currentX, 0, currentY)}):Play()
@@ -836,18 +896,18 @@ function onBarInput(input)
                     local currentX = (offset + newPos).X
                     local currentY = (offset + newPos).Y
                     local viewportSize = workspace.CurrentCamera.ViewportSize
-                    if (currentX < 0 and currentX < currentPos.X) or (currentX > (viewportSize.X - (sideClosed and 131 or TopBar.AbsoluteSize.X)) and currentX > currentPos.X) then
+                    if (currentX < 0 and currentX < currentPos.X) or (currentX > (viewportSize.X - (sideClosed and LAYOUT.side or TopBar.AbsoluteSize.X)) and currentX > currentPos.X) then
                         if currentX < 0 then
                             currentX = 0
                         else
-                            currentX = viewportSize.X - (sideClosed and 131 or TopBar.AbsoluteSize.X)
+                            currentX = viewportSize.X - (sideClosed and LAYOUT.side or TopBar.AbsoluteSize.X)
                         end
                     end
-                    if (currentY < 0 and currentY < currentPos.Y) or (currentY > (viewportSize.Y - (closed and 19 or Background.AbsoluteSize.Y) - GuiInset.Y) and currentY > currentPos.Y) then
+                    if (currentY < 0 and currentY < currentPos.Y) or (currentY > (viewportSize.Y - (closed and LAYOUT.topbar or Background.AbsoluteSize.Y) - GuiInset.Y) and currentY > currentPos.Y) then
                         if currentY < 0 then
                             currentY = 0
                         else
-                            currentY = viewportSize.Y - (closed and 19 or Background.AbsoluteSize.Y) - GuiInset.Y
+                            currentY = viewportSize.Y - (closed and LAYOUT.topbar or Background.AbsoluteSize.Y) - GuiInset.Y
                         end
                     end
                     currentPos = Vector2.new(currentX, currentY)
@@ -934,12 +994,14 @@ function toggleMinimize(override)
         if not sideClosed then
             toggleSideTray(true)
         end
+        vDivider.Visible = false
         Anim.panelShow(LeftPanel, false)
-        Anim.tween(LeftPanel, "size", Anim.Presets.Enter, {Size = UDim2.new(0, 131, 0, 0)})
+        Anim.tween(LeftPanel, "size", Anim.Presets.Enter, {Size = UDim2.fromOffset(LAYOUT.side, 0)})
         task.wait(0.42)
     else
-        Anim.tween(LeftPanel, "size", Anim.Presets.Pop, {Size = UDim2.new(0, 131, 0, 249)})
+        Anim.tween(LeftPanel, "size", Anim.Presets.Pop, {Size = UDim2.fromOffset(LAYOUT.side, Background.AbsoluteSize.Y - LAYOUT.topbar)})
         task.wait(0.30)
+        vDivider.Visible = not sideClosed
         Anim.panelShow(LeftPanel, true)
         bringBackOnResize()
     end
@@ -969,36 +1031,33 @@ function toggleSideTray(override)
     sideClosing = false
 end
 
---- Expands code box to fit screen for more convenient viewing
+--- Expands the code editor to fill the window for convenient viewing
 function toggleMaximize()
     if not sideClosed and not maximized then
         maximized = true
-        local disable = Instance.new("TextButton")
-        local prevSize = UDim2.new(0, CodeBox.AbsoluteSize.X, 0, CodeBox.AbsoluteSize.Y)
-        local prevPos = UDim2.new(0,CodeBox.AbsolutePosition.X, 0, CodeBox.AbsolutePosition.Y)
-        disable.Size = UDim2.new(1, 0, 1, 0)
-        disable.BackgroundColor3 = Color3.new()
-        disable.BorderSizePixel = 0
-        disable.Text = 0
-        disable.ZIndex = 3
-        disable.BackgroundTransparency = 1
-        disable.AutoButtonColor = false
-        CodeBox.ZIndex = 4
-        CodeBox.Position = prevPos
-        CodeBox.Size = prevSize
-        TweenService:Create(CodeBox, TweenInfo.new(0.5), {Size = UDim2.new(0.5, 0, 0.5, 0), Position = UDim2.new(0.25, 0, 0.25, 0)}):Play()
-        TweenService:Create(disable, TweenInfo.new(0.5), {BackgroundTransparency = 0.5}):Play()
+        local disable = Create("TextButton",{Name = "CodeMaxBackdrop",Parent = Background,BackgroundColor3 = Color3.new(0,0,0),BackgroundTransparency = 1,BorderSizePixel = 0,Text = "",AutoButtonColor = false,Size = UDim2.new(1, 0, 1, 0),ZIndex = 18})
+        -- запоминаем текущее место в координатах окна
+        local abs = codeWrap.AbsolutePosition - Background.AbsolutePosition
+        local prevParent, prevPos, prevSize = codeWrap.Parent, codeWrap.Position, codeWrap.Size
+        local prevZ = codeWrap.ZIndex
+        codeWrap.Parent = Background
+        codeWrap.Position = UDim2.fromOffset(abs.X, abs.Y)
+        codeWrap.Size = UDim2.fromOffset(codeWrap.AbsoluteSize.X, codeWrap.AbsoluteSize.Y)
+        codeWrap.ZIndex = 20
+        TweenService:Create(codeWrap, TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Size = UDim2.new(1, -16, 1, -16), Position = UDim2.fromOffset(8, 8)}):Play()
+        TweenService:Create(disable, TweenInfo.new(0.45), {BackgroundTransparency = 0.45}):Play()
         disable.MouseButton1Click:Connect(function()
-            if UserInputService:GetMouseLocation().Y + GuiInset.Y >= CodeBox.AbsolutePosition.Y and UserInputService:GetMouseLocation().Y + GuiInset.Y <= CodeBox.AbsolutePosition.Y + CodeBox.AbsoluteSize.Y and UserInputService:GetMouseLocation().X >= CodeBox.AbsolutePosition.X and UserInputService:GetMouseLocation().X <= CodeBox.AbsolutePosition.X + CodeBox.AbsoluteSize.X then
-                return
-            end
-            TweenService:Create(CodeBox, TweenInfo.new(0.5), {Size = prevSize, Position = prevPos}):Play()
-            TweenService:Create(disable, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
-            wait(0.5)
+            local m = UserInputService:GetMouseLocation() + GuiInset
+            local cp, cs = codeWrap.AbsolutePosition, codeWrap.AbsoluteSize
+            if m.X >= cp.X and m.X <= cp.X + cs.X and m.Y >= cp.Y and m.Y <= cp.Y + cs.Y then return end
+            TweenService:Create(codeWrap, TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Size = prevSize, Position = prevPos}):Play()
+            TweenService:Create(disable, TweenInfo.new(0.45), {BackgroundTransparency = 1}):Play()
+            wait(0.45)
             disable:Destroy()
-            CodeBox.Size = UDim2.new(1, 0, 0.5, 0)
-            CodeBox.Position = UDim2.new(0, 0, 0, 0)
-            CodeBox.ZIndex = 0
+            codeWrap.Parent = prevParent
+            codeWrap.Size = prevSize
+            codeWrap.Position = prevPos
+            codeWrap.ZIndex = prevZ
             maximized = false
         end)
     end
@@ -1078,12 +1137,15 @@ function maximizeSize(speed)
     if not speed then
         speed = 0.05
     end
-    TweenService:Create(LeftPanel, TweenInfo.new(speed), { Size = UDim2.fromOffset(LeftPanel.AbsoluteSize.X, Background.AbsoluteSize.Y - TopBar.AbsoluteSize.Y) }):Play()
-    TweenService:Create(RightPanel, TweenInfo.new(speed), { Size = UDim2.fromOffset(Background.AbsoluteSize.X - LeftPanel.AbsoluteSize.X, Background.AbsoluteSize.Y - TopBar.AbsoluteSize.Y) }):Play()
-    TweenService:Create(TopBar, TweenInfo.new(speed), { Size = UDim2.fromOffset(Background.AbsoluteSize.X, TopBar.AbsoluteSize.Y) }):Play()
-    TweenService:Create(ScrollingFrame, TweenInfo.new(speed), { Size = UDim2.fromOffset(Background.AbsoluteSize.X - LeftPanel.AbsoluteSize.X, 110), Position = UDim2.fromOffset(0, Background.AbsoluteSize.Y - 119 - TopBar.AbsoluteSize.Y) }):Play()
-    TweenService:Create(CodeBox, TweenInfo.new(speed), { Size = UDim2.fromOffset(Background.AbsoluteSize.X - LeftPanel.AbsoluteSize.X, Background.AbsoluteSize.Y - 119 - TopBar.AbsoluteSize.Y) }):Play()
-    TweenService:Create(LogList, TweenInfo.new(speed), { Size = UDim2.fromOffset(LogList.AbsoluteSize.X, Background.AbsoluteSize.Y - TopBar.AbsoluteSize.Y - 35) }):Play()
+    local H = Background.AbsoluteSize.Y
+    local W = Background.AbsoluteSize.X
+    local bodyH = H - LAYOUT.topbar
+    TweenService:Create(LeftPanel, TweenInfo.new(speed), { Size = UDim2.fromOffset(LAYOUT.side, bodyH) }):Play()
+    TweenService:Create(RightPanel, TweenInfo.new(speed), { Size = UDim2.fromOffset(W - LAYOUT.side, bodyH) }):Play()
+    vDivider.Visible = true
+    TweenService:Create(codeWrap, TweenInfo.new(speed), { Size = UDim2.new(1, -16, 0, bodyH - BOTTOM_CLAMP - 16), Position = UDim2.new(0, 8, 0, 8) }):Play()
+    TweenService:Create(ScrollingFrame, TweenInfo.new(speed), { Size = UDim2.new(1, -16, 0, LAYOUT.stripH), Position = UDim2.fromOffset(8, bodyH - LAYOUT.stripH - 8) }):Play()
+    TweenService:Create(LogList, TweenInfo.new(speed), { Size = UDim2.new(0, LAYOUT.side, 1, -LOG_PAD - 6) }):Play()
 end
 
 --- Adjusts the ui elements to close the side
@@ -1091,12 +1153,14 @@ function minimizeSize(speed)
     if not speed then
         speed = 0.05
     end
-    TweenService:Create(LeftPanel, TweenInfo.new(speed), { Size = UDim2.fromOffset(LeftPanel.AbsoluteSize.X, Background.AbsoluteSize.Y - TopBar.AbsoluteSize.Y) }):Play()
-    TweenService:Create(RightPanel, TweenInfo.new(speed), { Size = UDim2.fromOffset(0, Background.AbsoluteSize.Y - TopBar.AbsoluteSize.Y) }):Play()
-    TweenService:Create(TopBar, TweenInfo.new(speed), { Size = UDim2.fromOffset(LeftPanel.AbsoluteSize.X, TopBar.AbsoluteSize.Y) }):Play()
-    TweenService:Create(ScrollingFrame, TweenInfo.new(speed), { Size = UDim2.fromOffset(0, 119), Position = UDim2.fromOffset(0, Background.AbsoluteSize.Y - 119 - TopBar.AbsoluteSize.Y) }):Play()
-    TweenService:Create(CodeBox, TweenInfo.new(speed), { Size = UDim2.fromOffset(0, Background.AbsoluteSize.Y - 119 - TopBar.AbsoluteSize.Y) }):Play()
-    TweenService:Create(LogList, TweenInfo.new(speed), { Size = UDim2.fromOffset(LogList.AbsoluteSize.X, Background.AbsoluteSize.Y - TopBar.AbsoluteSize.Y - 35) }):Play()
+    local H = Background.AbsoluteSize.Y
+    local bodyH = H - LAYOUT.topbar
+    TweenService:Create(LeftPanel, TweenInfo.new(speed), { Size = UDim2.fromOffset(LAYOUT.side, bodyH) }):Play()
+    TweenService:Create(RightPanel, TweenInfo.new(speed), { Size = UDim2.fromOffset(0, bodyH) }):Play()
+    vDivider.Visible = false
+    TweenService:Create(ScrollingFrame, TweenInfo.new(speed), { Size = UDim2.new(0, 0, 0, LAYOUT.stripH), Position = UDim2.fromOffset(8, bodyH - LAYOUT.stripH - 8) }):Play()
+    TweenService:Create(codeWrap, TweenInfo.new(speed), { Size = UDim2.new(0, 0, 0, bodyH - BOTTOM_CLAMP - 16), Position = UDim2.new(0, 8, 0, 8) }):Play()
+    TweenService:Create(LogList, TweenInfo.new(speed), { Size = UDim2.new(0, LAYOUT.side, 1, -LOG_PAD - 6) }):Play()
 end
 
 --- Ensures size is within screensize limitations
@@ -1104,16 +1168,16 @@ function validateSize()
     local x, y = Background.AbsoluteSize.X, Background.AbsoluteSize.Y
     local screenSize = workspace.CurrentCamera.ViewportSize
     if x + Background.AbsolutePosition.X > screenSize.X then
-        if screenSize.X - Background.AbsolutePosition.X >= 450 then
+        if screenSize.X - Background.AbsolutePosition.X >= LAYOUT.winW then
             x = screenSize.X - Background.AbsolutePosition.X
         else
-            x = 450
+            x = LAYOUT.winW
         end
     elseif y + Background.AbsolutePosition.Y > screenSize.Y then
-        if screenSize.X - Background.AbsolutePosition.Y >= 268 then
+        if screenSize.X - Background.AbsolutePosition.Y >= LAYOUT.winH then
             y = screenSize.Y - Background.AbsolutePosition.Y
         else
-            y = 268
+            y = LAYOUT.winH
         end
     end
     Background.Size = UDim2.fromOffset(x, y)
@@ -1134,11 +1198,11 @@ function backgroundUserInput(input)
                 if newPos ~= lastPos then
                     local currentX = (newPos + offset).X
                     local currentY = (newPos + offset).Y
-                    if currentX < 450 then
-                        currentX = 450
+                    if currentX < LAYOUT.winW then
+                        currentX = LAYOUT.winW
                     end
-                    if currentY < 268 then
-                        currentY = 268
+                    if currentY < LAYOUT.winH then
+                        currentY = LAYOUT.winH
                     end
                     currentPos = Vector2.new(currentX, currentY)
                     Background.Size = UDim2.fromOffset((not sideClosed and not closed and (type == "X" or type == "B")) and currentPos.X or Background.AbsoluteSize.X, (--[[(not sideClosed or currentPos.X <= LeftPanel.AbsolutePosition.X + LeftPanel.AbsoluteSize.X) and]] not closed and (type == "Y" or type == "B")) and currentPos.Y or Background.AbsoluteSize.Y)
@@ -1178,7 +1242,8 @@ end
 function eventSelect(frame)
     if selected and selected.Log then
         if selected.Button then
-            Anim.tween(selected.Button, "sel", Anim.Presets.Enter, {BackgroundColor3 = Color3.fromRGB(0, 0, 0), BackgroundTransparency = 0.78, TextTransparency = 0})
+            Anim.tween(selected.Button, "sel", Anim.Presets.Enter, {BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.82})
+            Anim.tween(selected.Log, "selbg", Anim.Presets.Enter, {BackgroundColor3 = Theme.card})
         end
         selected = nil
     end
@@ -1188,7 +1253,8 @@ function eventSelect(frame)
         end
     end
     if selected and selected.Log then
-        Anim.tween(frame.Button, "sel", Anim.Presets.Pop, {BackgroundColor3 = Theme.accent, BackgroundTransparency = 0.25})
+        Anim.tween(frame.Button, "sel", Anim.Presets.Pop, {BackgroundColor3 = Theme.accent, BackgroundTransparency = 0.55})
+        Anim.tween(frame, "selbg", Anim.Presets.Pop, {BackgroundColor3 = Theme.cardHover})
         codebox:setRaw(selected.GenScript)
     end
     if sideClosed then
@@ -1282,23 +1348,31 @@ end
 ---@param description function
 ---@param onClick function
 function newButton(name, description, onClick)
-    local FunctionTemplate = Create("Frame",{Name = "FunctionTemplate",Parent = ScrollingFrame,BackgroundColor3 = Theme.card,BackgroundTransparency = 0,ClipsDescendants = true,Size = UDim2.new(0, 117, 0, 23)})
-    Create("UICorner",{Parent = FunctionTemplate,CornerRadius = UDim.new(0, 6)})
-    local ColorBar = Create("Frame",{Name = "ColorBar",Parent = FunctionTemplate,BackgroundColor3 = Theme.accent,BorderSizePixel = 0,Position = UDim2.new(0, 7, 0, 10),Size = UDim2.new(0, 3, 0, 18),ZIndex = 3})
-    Create("UICorner",{Parent = ColorBar,CornerRadius = UDim.new(1, 0)})
-    local Text = Create("TextLabel",{Text = name,Name = "Text",Parent = FunctionTemplate,BackgroundTransparency = 1,Position = UDim2.new(0, 15, 0, 10),Size = UDim2.new(0, 71, 0, 18),ZIndex = 2,Font = Enum.Font.Gotham,TextColor3 = Theme.text,TextSize = 14,TextScaled = true,TextWrapped = false,TextStrokeColor3 = Color3.new(0,0,0),TextXAlignment = Enum.TextXAlignment.Left})
-    local Button = Create("TextButton",{Name = "Button",Parent = FunctionTemplate,BackgroundColor3 = Color3.new(0, 0, 0),BackgroundTransparency = 0.6,BorderSizePixel = 0,Position = UDim2.new(0, 0, 0, 0),Size = UDim2.new(1, 0, 1, 0),AutoButtonColor = false,Font = Enum.Font.SourceSans,Text = "",TextColor3 = Color3.new(0, 0, 0),TextSize = 14})
-    Create("UICorner",{Parent = Button,CornerRadius = UDim.new(0, 6)})
+    local FunctionTemplate = Create("Frame",{Name = "FunctionTemplate",Parent = ScrollingFrame,BackgroundColor3 = Theme.card,BackgroundTransparency = 0,ClipsDescendants = true,Size = UDim2.fromOffset(105, 30)})
+    round(FunctionTemplate, 8)
+    local cardStroke = line(FunctionTemplate, Theme.line, 1, 0.45)
+    local ColorBar = Create("Frame",{Name = "ColorBar",Parent = FunctionTemplate,BackgroundColor3 = Theme.accent,BorderSizePixel = 0,Position = UDim2.new(0, 9, 0.5, -7),Size = UDim2.fromOffset(3, 14),ZIndex = 3})
+    round(ColorBar, 99)
+    local Text = Create("TextLabel",{Text = name,Name = "Text",Parent = FunctionTemplate,BackgroundTransparency = 1,Position = UDim2.new(0, 19, 0, 0),Size = UDim2.new(1, -24, 1, 0),ZIndex = 2,Font = Enum.Font.Gotham,TextColor3 = Theme.text,TextSize = 12,TextScaled = true,TextWrapped = false,TextXAlignment = Enum.TextXAlignment.Left})
+    local Button = Create("TextButton",{Name = "Button",Parent = FunctionTemplate,BackgroundColor3 = Color3.new(1, 1, 1),BackgroundTransparency = 1,BorderSizePixel = 0,Position = UDim2.new(0, 0, 0, 0),Size = UDim2.new(1, 0, 1, 0),AutoButtonColor = false,Font = Enum.Font.SourceSans,Text = "",TextSize = 14,ZIndex = 4})
+    round(Button, 8)
+    -- блик под курсором (рисуется под текстом)
+    local gloss = Create("Frame",{Parent = FunctionTemplate,BackgroundColor3 = Theme.accent,BorderSizePixel = 0,Position = UDim2.new(0, 0, 0, 0),Size = UDim2.new(1, 0, 1, 0),BackgroundTransparency = 1,ZIndex = 1})
+    round(gloss, 8)
 
-    local uiConstraint = Create("UITextSizeConstraint",{Parent = Text,MaxTextSize = 14,MinTextSize = 7})
+    Create("UITextSizeConstraint",{Parent = Text,MaxTextSize = 13,MinTextSize = 8})
 
-    Anim.enterCard(FunctionTemplate, Anim.stagger(0.06), 0.6)
-    Anim.micro(FunctionTemplate, Button, Theme.cardHover)
+    Anim.enterCard(FunctionTemplate, Anim.stagger(0.06), 1)
+    Anim.micro(FunctionTemplate, Button)   -- только масштаб/нажатие/ripple, подсветку даёт gloss
 
     Button.MouseEnter:Connect(function()
+        Anim.tween(gloss, "gl", Anim.Presets.Hover, {BackgroundTransparency = 0.78})
+        Anim.tween(cardStroke, "cs", Anim.Presets.Hover, {Transparency = 0.15})
         makeToolTip(true, description())
     end)
     Button.MouseLeave:Connect(function()
+        Anim.tween(gloss, "gl", Anim.Presets.Hover, {BackgroundTransparency = 1})
+        Anim.tween(cardStroke, "cs", Anim.Presets.Hover, {Transparency = 0.45})
         makeToolTip(false)
     end)
     FunctionTemplate.AncestryChanged:Connect(function()
@@ -1323,13 +1397,19 @@ function newRemote(type, data)
     local remote = data.remote
     local callingscript = data.callingscript
 
-    local RemoteTemplate = Create("Frame",{LayoutOrder = layoutOrderNum,Name = "RemoteTemplate",Parent = LogList,BackgroundColor3 = Theme.card,BackgroundTransparency = 0,ClipsDescendants = true,Size = UDim2.new(0, 121, 0, 25)})
-    Create("UICorner",{Parent = RemoteTemplate,CornerRadius = UDim.new(0, 6)})
-    local ColorBar = Create("Frame",{Name = "ColorBar",Parent = RemoteTemplate,BackgroundColor3 = (type == "event" and Color3.fromRGB(255, 214, 64)) or Theme.accent,BorderSizePixel = 0,Position = UDim2.new(0, 8, 0, 3),Size = UDim2.new(0, 3, 0, 18),ZIndex = 2})
-    Create("UICorner",{Parent = ColorBar,CornerRadius = UDim.new(1, 0)})
-    local Text = Create("TextLabel",{TextTruncate = Enum.TextTruncate.AtEnd,Name = "Text",Parent = RemoteTemplate,BackgroundTransparency = 1,Position = UDim2.new(0, 16, 0, 3),Size = UDim2.new(0, 100, 0, 18),ZIndex = 2,Font = Enum.Font.Gotham,Text = remote.Name,TextColor3 = Theme.text,TextSize = 13,TextXAlignment = Enum.TextXAlignment.Left})
-    local Button = Create("TextButton",{Name = "Button",Parent = RemoteTemplate,BackgroundColor3 = Color3.new(0, 0, 0),BackgroundTransparency = 0.78,BorderSizePixel = 0,Position = UDim2.new(0, 0, 0, 0),Size = UDim2.new(1, 0, 1, 0),AutoButtonColor = false,Font = Enum.Font.SourceSans,Text = "",TextColor3 = Color3.new(0, 0, 0),TextSize = 14})
-    Create("UICorner",{Parent = Button,CornerRadius = UDim.new(0, 6)})
+    local isEvent = type == "event"
+    local barColor = isEvent and Theme.warn or Theme.accent
+    local RemoteTemplate = Create("Frame",{LayoutOrder = layoutOrderNum,Name = "RemoteTemplate",Parent = LogList,BackgroundColor3 = Theme.card,BackgroundTransparency = 0,ClipsDescendants = true,Size = UDim2.new(1, -12, 0, 26)})
+    round(RemoteTemplate, 8)
+    local cardStroke = line(RemoteTemplate, Theme.line, 1, 0.5)
+    local ColorBar = Create("Frame",{Name = "ColorBar",Parent = RemoteTemplate,BackgroundColor3 = barColor,BorderSizePixel = 0,Position = UDim2.new(0, 8, 0.5, -8),Size = UDim2.fromOffset(3, 16),ZIndex = 2})
+    round(ColorBar, 99)
+    local Text = Create("TextLabel",{TextTruncate = Enum.TextTruncate.AtEnd,Name = "Text",Parent = RemoteTemplate,BackgroundTransparency = 1,Position = UDim2.new(0, 18, 0, 0),Size = UDim2.new(1, -58, 1, 0),ZIndex = 2,Font = Enum.Font.GothamMedium,Text = remote.Name,TextColor3 = Theme.text,TextSize = 12,TextXAlignment = Enum.TextXAlignment.Left})
+    -- тип-бейдж справа (EV / FN)
+    local Badge = Create("TextLabel",{Parent = RemoteTemplate,BackgroundColor3 = barColor,BackgroundTransparency = 0.82,BorderSizePixel = 0,AnchorPoint = Vector2.new(1, 0.5),Position = UDim2.new(1, -8, 0.5, 0),Size = UDim2.fromOffset(26, 14),ZIndex = 3,Font = Enum.Font.GothamBold,Text = isEvent and "EV" or "FN",TextColor3 = barColor,TextSize = 9})
+    round(Badge, 5)
+    local Button = Create("TextButton",{Name = "Button",Parent = RemoteTemplate,BackgroundColor3 = Color3.new(0, 0, 0),BackgroundTransparency = 0.82,BorderSizePixel = 0,Position = UDim2.new(0, 0, 0, 0),Size = UDim2.new(1, 0, 1, 0),AutoButtonColor = false,Font = Enum.Font.SourceSans,Text = "",TextColor3 = Color3.new(0, 0, 0),TextSize = 14,ZIndex = 4})
+    round(Button, 8)
 
     local log = {
         Name = remote.Name,
@@ -1362,16 +1442,22 @@ function newRemote(type, data)
             eventSelect(RemoteTemplate)
         end
     end)
-    -- вход карточки: каскад, микро-UX, свечение под цвет ColorBar
-    Anim.enterCard(RemoteTemplate, Anim.stagger(0.05), 0.78)
-    Anim.micro(RemoteTemplate, Button, Theme.cardHover)
+    -- вход карточки: каскад, микро-UX (только scale/нажатие)
+    Anim.enterCard(RemoteTemplate, Anim.stagger(0.05), 0.82)
+    Anim.micro(RemoteTemplate, Button)
 
-    local glow = Create("UIStroke",{Parent = Text,Thickness = 1,Color = (type == "event" and Color3.fromRGB(255, 214, 64)) or Theme.accent,Transparency = 0.75,ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual})
+    -- по наведению: подсветка фона карточки + акцентная обводка + свечение бейджа
     Button.MouseEnter:Connect(function()
-        Anim.tween(glow, "g", Anim.Presets.Hover, {Transparency = 0.2})
+        Anim.tween(RemoteTemplate, "hv", Anim.Presets.Hover, {BackgroundColor3 = Theme.cardHover})
+        Anim.tween(cardStroke, "hv", Anim.Presets.Hover, {Color = barColor, Transparency = 0.2})
+        Anim.tween(Badge, "hv", Anim.Presets.Hover, {BackgroundTransparency = 0.6})
     end)
     Button.MouseLeave:Connect(function()
-        Anim.tween(glow, "g", Anim.Presets.Hover, {Transparency = 0.75})
+        if selected ~= log then
+            Anim.tween(RemoteTemplate, "hv", Anim.Presets.Hover, {BackgroundColor3 = Theme.card})
+        end
+        Anim.tween(cardStroke, "hv", Anim.Presets.Hover, {Color = Theme.line, Transparency = 0.5})
+        Anim.tween(Badge, "hv", Anim.Presets.Hover, {BackgroundTransparency = 0.82})
     end)
     layoutOrderNum -= 1
     table.insert(remoteLogs, 1, {connect, RemoteTemplate})
