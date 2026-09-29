@@ -188,10 +188,10 @@ local function Create(instance, properties, children)
     local obj = Instance.new(instance)
 
     for i, v in next, properties or {} do
-        obj[i] = v
-        for _, child in next, children or {} do
-            child.Parent = obj;
-        end
+        obj[i] = v;
+    end
+    for _, child in next, children or {} do
+        child.Parent = obj;
     end
     return obj;
 end
@@ -270,6 +270,131 @@ local TextService = SafeGetService("TextService")
 local http = SafeGetService("HttpService")
 local GuiInset = game:GetService("GuiService"):GetGuiInset() :: Vector2 -- pulled from rewrite
 
+-- ==========================================================================
+-- [lowkeyy.lua] ANIM CORE — один слой твинов: пресеты, реестр, каскад, micro-UX
+-- ==========================================================================
+local Anim = {}
+Anim.Presets = {
+    Enter = TweenInfo.new(0.42, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+    Pop   = TweenInfo.new(0.50, Enum.EasingStyle.Back,  Enum.EasingDirection.Out),
+    Exit  = TweenInfo.new(0.26, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
+    Hover = TweenInfo.new(0.16, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+    Press = TweenInfo.new(0.09, Enum.EasingStyle.Quad,  Enum.EasingDirection.Out),
+    Glow  = TweenInfo.new(0.60, Enum.EasingStyle.Sine,  Enum.EasingDirection.InOut),
+}
+
+-- слабый ключ: реестр не держит инстансы живыми после Destroy
+local animRegistry = setmetatable({}, {__mode = "k"})
+
+-- Отменяет предыдущий твин по паре (object, key). Быстрые hover/click
+-- наслаивались бы и рвали кадр — здесь они гасят друг друга.
+function Anim.tween(object, key, info, goal)
+    if not object then return end
+    local bucket = animRegistry[object]
+    if not bucket then bucket = {}; animRegistry[object] = bucket end
+    local prev = bucket[key]
+    if prev then prev:Cancel() end
+    local t = TweenService:Create(object, info, goal)
+    bucket[key] = t
+    t.Completed:Once(function()
+        if bucket[key] == t then bucket[key] = nil end
+    end)
+    t:Play()
+    return t
+end
+
+-- Каскад для списков. Счётчик нарастает, но упирается в потолок и
+-- сбрасывается ленивым таймером — очередь не раздувается при спаме ремоутов.
+local staggerIndex, staggerToken = 0, 0
+function Anim.stagger(step)
+    step = step or 0.06
+    staggerIndex = math.min(staggerIndex + 1, 14)
+    staggerToken += 1
+    local mine = staggerToken
+    task.delay(0.4, function()
+        if staggerToken == mine then staggerIndex = 0 end
+    end)
+    return staggerIndex * step
+end
+
+-- Hover: scale 1.0 -> 1.05 + подсветка. Click: 1.0 -> 0.95 -> 1.05 (Back Out).
+function Anim.micro(card, surface, accent)
+    local scale = card:FindFirstChildOfClass("UIScale")
+    if not scale then scale = Create("UIScale", {Parent = card, Scale = 1}) end
+    local baseColor = surface.BackgroundColor3
+    surface.MouseEnter:Connect(function()
+        Anim.tween(scale, "hover", Anim.Presets.Hover, {Scale = 1.05})
+        if accent then Anim.tween(surface, "hc", Anim.Presets.Hover, {BackgroundColor3 = accent}) end
+    end)
+    surface.MouseLeave:Connect(function()
+        Anim.tween(scale, "hover", Anim.Presets.Hover, {Scale = 1})
+        Anim.tween(surface, "hc", Anim.Presets.Hover, {BackgroundColor3 = baseColor})
+    end)
+    surface.MouseButton1Down:Connect(function()
+        Anim.tween(scale, "push", Anim.Presets.Press, {Scale = 0.95})
+    end)
+    surface.MouseButton1Up:Connect(function()
+        Anim.tween(scale, "push", Anim.Presets.Pop, {Scale = 1.05})
+    end)
+end
+
+-- Появление карточки: scale 0.9 -> 1 (Back Out) + проявление текста/плашки,
+-- плюс короткая вспышка ColorBar. delay приходит из Anim.stagger(...).
+function Anim.enterCard(card, delay, buttonRest)
+    buttonRest = buttonRest or 0.75
+    local scale = card:FindFirstChildOfClass("UIScale")
+    if not scale then scale = Create("UIScale", {Parent = card, Scale = 0.9}) end
+    scale.Scale = 0.9
+
+    local colorBar = card:FindFirstChild("ColorBar")
+    local text     = card:FindFirstChild("Text")
+    local button   = card:FindFirstChild("Button")
+    if text   then text.TextTransparency = 1 end
+    if button then button.BackgroundTransparency = 1 end
+
+    task.delay(delay or 0, function()
+        Anim.tween(scale, "enter", Anim.Presets.Pop, {Scale = 1})
+        if text   then Anim.tween(text,   "enter", Anim.Presets.Enter, {TextTransparency = 0}) end
+        if button then Anim.tween(button, "enter", Anim.Presets.Enter, {BackgroundTransparency = buttonRest}) end
+        if colorBar then
+            colorBar.BackgroundTransparency = 0.4
+            Anim.tween(colorBar, "flash", Anim.Presets.Glow, {BackgroundTransparency = 0})
+        end
+    end)
+end
+
+-- Панель — CanvasGroup: fade и scale целы, без мигания потомков.
+function Anim.panelShow(group, show)
+    if show then
+        group.Visible = true
+        group.GroupTransparency = 1
+        group.GroupScale = 0.98
+        Anim.tween(group, "grp", Anim.Presets.Pop, {GroupTransparency = 0, GroupScale = 1})
+    else
+        local t = Anim.tween(group, "grp", Anim.Presets.Exit, {GroupTransparency = 1, GroupScale = 0.98})
+        t.Completed:Once(function()
+            if group.GroupTransparency > 0.99 then group.Visible = false end
+        end)
+    end
+end
+
+-- BlurEffect на окно. Родитель — Lighting; троттлится тем же реестром.
+local windowBlur
+function Anim.blur(on)
+    if not windowBlur then
+        windowBlur = Create("BlurEffect", {Name = "SimpleSpyBlur", Parent = SafeGetService("Lighting"), Size = 0, Enabled = false})
+    end
+    if on then
+        windowBlur.Enabled = true
+        Anim.tween(windowBlur, "blur", Anim.Presets.Enter, {Size = 12})
+    else
+        local t = Anim.tween(windowBlur, "blur", Anim.Presets.Exit, {Size = 0})
+        t.Completed:Once(function()
+            if windowBlur.Size < 0.5 then windowBlur.Enabled = false end
+        end)
+    end
+end
+
 local function jsone(str) return http:JSONEncode(str) end
 local function jsond(str)
     local suc,err = pcall(http.JSONDecode,http,str)
@@ -309,11 +434,11 @@ local Highlight = (isfile and loadfile and isfile("Highlight.lua") and loadfile(
 local SimpleSpy3 = Create("ScreenGui",{ResetOnSpawn = false})
 local Storage = Create("Folder",{})
 local Background = Create("Frame",{Parent = SimpleSpy3,BackgroundColor3 = Color3.new(1, 1, 1),BackgroundTransparency = 1,Position = UDim2.new(0, 500, 0, 200),Size = UDim2.new(0, 450, 0, 268)})
-local LeftPanel = Create("Frame",{Parent = Background,BackgroundColor3 = Color3.fromRGB(53, 52, 55),BorderSizePixel = 0,ClipsDescendants = true,Position = UDim2.new(0, 0, 0, 19),Size = UDim2.new(0, 131, 0, 249)})
+local LeftPanel  = Create("CanvasGroup",{Parent = Background,BackgroundColor3 = Color3.fromRGB(53, 52, 55),BorderSizePixel = 0,ClipsDescendants = true,Position = UDim2.new(0, 0, 0, 19),Size = UDim2.new(0, 131, 0, 249)})
 local SearchBox = Create("TextBox",{Parent = LeftPanel,BackgroundColor3 = Color3.fromRGB(37, 36, 38),BorderSizePixel = 0,Position = UDim2.new(0, 4, 0, 4),Size = UDim2.new(1, -8, 0, 18),Font = Enum.Font.SourceSans,PlaceholderText = Locale.btnSearch,PlaceholderColor3 = Color3.fromRGB(150, 150, 150),Text = "",TextColor3 = Color3.new(1, 1, 1),TextSize = 14,ClearTextOnFocus = false,TextXAlignment = Enum.TextXAlignment.Left})
 local LogList = Create("ScrollingFrame",{Parent = LeftPanel,Active = true,BackgroundColor3 = Color3.new(1, 1, 1),BackgroundTransparency = 1,BorderSizePixel = 0,ClipsDescendants = true,Position = UDim2.new(0, 0, 0, 26),Size = UDim2.new(0, 131, 0, 215),CanvasSize = UDim2.new(0, 0, 0, 0),ScrollBarThickness = 4})
 local UIListLayout = Create("UIListLayout",{Parent = LogList,HorizontalAlignment = Enum.HorizontalAlignment.Center,SortOrder = Enum.SortOrder.LayoutOrder})
-local RightPanel = Create("Frame",{Parent = Background,BackgroundColor3 = Color3.fromRGB(37, 36, 38),BorderSizePixel = 0,ClipsDescendants = true,Position = UDim2.new(0, 131, 0, 19),Size = UDim2.new(0, 319, 0, 249)})
+local RightPanel = Create("CanvasGroup",{Parent = Background,BackgroundColor3 = Color3.fromRGB(37, 36, 38),BorderSizePixel = 0,ClipsDescendants = true,Position = UDim2.new(0, 131, 0, 19),Size = UDim2.new(0, 319, 0, 249)})
 local CodeBox = Create("Frame",{Parent = RightPanel,BackgroundColor3 = Color3.new(0.0823529, 0.0745098, 0.0784314),BorderSizePixel = 0,ClipsDescendants = true,Size = UDim2.new(0, 319, 0, 119)})
 local ScrollingFrame = Create("ScrollingFrame",{Parent = RightPanel,Active = true,BackgroundColor3 = Color3.new(1, 1, 1),BackgroundTransparency = 1,BorderSizePixel = 0,ClipsDescendants = true,Position = UDim2.new(0, 0, 0.5, 0),Size = UDim2.new(1, 0, 0.5, -9),CanvasSize = UDim2.new(0, 0, 0, 0),ScrollBarThickness = 4})
 local UIGridLayout = Create("UIGridLayout",{Parent = ScrollingFrame,HorizontalAlignment = Enum.HorizontalAlignment.Center,SortOrder = Enum.SortOrder.LayoutOrder,CellPadding = UDim2.new(0, 0, 0, 0),CellSize = UDim2.new(0, 94, 0, 27)})
@@ -328,6 +453,28 @@ local ImageLabel_3 = Create("ImageLabel",{Parent = MinimizeButton,BackgroundColo
 
 local ToolTip = Create("Frame",{Parent = SimpleSpy3,BackgroundColor3 = Color3.fromRGB(26, 26, 26),BackgroundTransparency = 0.1,BorderColor3 = Color3.new(1, 1, 1),Size = UDim2.new(0, 200, 0, 50),ZIndex = 3,Visible = false})
 local TextLabel = Create("TextLabel",{Parent = ToolTip,BackgroundColor3 = Color3.new(1, 1, 1),BackgroundTransparency = 1,Position = UDim2.new(0, 2, 0, 2),Size = UDim2.new(0, 196, 0, 46),ZIndex = 3,Font = Enum.Font.SourceSans,Text = "This is some slightly longer text.",TextColor3 = Color3.new(1, 1, 1),TextSize = 14,TextWrapped = true,TextXAlignment = Enum.TextXAlignment.Left,TextYAlignment = Enum.TextYAlignment.Top})
+
+-- ==========================================================================
+-- [lowkeyy.lua] ЖИВОЙ ФОН — shimmer по TopBar + мягкий градиент в CodeBox
+-- ==========================================================================
+TopBar.ClipsDescendants = true
+local shimmer = Create("Frame",{Parent = TopBar,BackgroundColor3 = Color3.new(1,1,1),BackgroundTransparency = 0.85,BorderSizePixel = 0,Size = UDim2.new(0, 70, 1, 0),Position = UDim2.new(0, -70, 0, 0),ZIndex = 2})
+Create("UIGradient",{Parent = shimmer,Rotation = 90,Transparency = NumberSequence.new{
+    NumberSequenceKeypoint.new(0, 1),
+    NumberSequenceKeypoint.new(0.5, 0.15),
+    NumberSequenceKeypoint.new(1, 1)
+}})
+-- один твин на весь цикл: без RenderStepped, RepeatCount = -1
+TweenService:Create(shimmer, TweenInfo.new(2.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, false, 0.6),
+    {Position = UDim2.new(1, 0, 0, 0)}):Play()
+
+-- Градиент CodeBox дышит через Offset: один property-set в кадр, не создание твина
+local codeGrad = Create("UIGradient",{Parent = CodeBox,Rotation = 120,Transparency = NumberSequence.new{
+    NumberSequenceKeypoint.new(0, 0.85),
+    NumberSequenceKeypoint.new(0.5, 0.6),
+    NumberSequenceKeypoint.new(1, 0.85)
+}})
+local codeGradPhase = 0
 
 -------------------------------------------------------------------------------
 
@@ -385,6 +532,11 @@ local excluding = {}
 local mouseInGui = false
 
 local connections = {}
+-- живой фон: подключение после объявления connections (иначе forward-ref на local)
+connections["codeGrad"] = RunService.RenderStepped:Connect(function(dt)
+    codeGradPhase = (codeGradPhase + dt * 0.08) % 1
+    codeGrad.Offset = Vector2.new(math.sin(codeGradPhase * math.pi * 2) * 0.25, 0)
+end)
 local DecompiledScripts = {}
 local generation = {}
 local running_threads = {}
@@ -478,6 +630,13 @@ function clean()
             table.insert(newLogs, remoteLogs[i])
         end
         remoteLogs = newLogs
+        -- чистим и logs тоже, иначе память растет а сейв тяжелеет
+        local newMain = {}
+        for i = 1, math.min(100, #logs) do
+            table.insert(newMain, logs[i])
+        end
+        clear(logs)
+        for _, v in ipairs(newMain) do table.insert(logs, v) end
     end
 end
 
@@ -600,7 +759,9 @@ function onBarInput(input)
                     end
                     currentPos = Vector2.new(currentX, currentY)
                     lastPos = newPos
-                    TweenService.Create(TweenService, Background, TweenInfo.new(0.1), {Position = UDim2.new(0, currentPos.X, 0, currentPos.Y)}):Play()
+                    -- было: TweenService:Create(...):Play() — 60 аллокаций/сек.
+                    -- прямое присваивание глаже и бесплатно.
+                    Background.Position = UDim2.new(0, currentPos.X, 0, currentPos.Y)
                 end
                     -- if input.UserInputState ~= Enum.UserInputState.Begin then
                     --     RunService.UnbindFromRenderStep(RunService, "drag")
@@ -669,8 +830,9 @@ function fadeOut(elements)
 end
 
 --- Expands and minimizes the gui (closed is the toggle boolean)
+--- Expands and minimizes the gui (closed is the toggle boolean)
 function toggleMinimize(override)
-    if mainClosing and not override or maximized then
+    if (mainClosing or sideClosing) and not override or maximized then
         return
     end
     mainClosing = true
@@ -679,17 +841,13 @@ function toggleMinimize(override)
         if not sideClosed then
             toggleSideTray(true)
         end
-        LeftPanel.Visible = true
-        remotesFadeIn = fadeOut(LeftPanel:GetDescendants())
-        TweenService:Create(LeftPanel, TweenInfo.new(0.5), {Size = UDim2.new(0, 131, 0, 0)}):Play()
-        wait(0.5)
+        Anim.panelShow(LeftPanel, false)
+        Anim.tween(LeftPanel, "size", Anim.Presets.Enter, {Size = UDim2.new(0, 131, 0, 0)})
+        task.wait(0.42)
     else
-        TweenService:Create(LeftPanel, TweenInfo.new(0.5), {Size = UDim2.new(0, 131, 0, 249)}):Play()
-        wait(0.5)
-        if remotesFadeIn then
-            remotesFadeIn()
-            remotesFadeIn = nil
-        end
+        Anim.tween(LeftPanel, "size", Anim.Presets.Pop, {Size = UDim2.new(0, 131, 0, 249)})
+        task.wait(0.30)
+        Anim.panelShow(LeftPanel, true)
         bringBackOnResize()
     end
     mainClosing = false
@@ -697,27 +855,22 @@ end
 
 --- Expands and minimizes the sidebar (sideClosed is the toggle boolean)
 function toggleSideTray(override)
-    if sideClosing and not override or maximized then
+    if (sideClosing or mainClosing) and not override or maximized then
         return
     end
     sideClosing = true
     sideClosed = not sideClosed
     if sideClosed then
-        rightFadeIn = fadeOut(RightPanel:GetDescendants())
-        wait(0.5)
+        Anim.panelShow(RightPanel, false)
+        task.wait(0.26)
         minimizeSize(0.5)
-        wait(0.5)
-        RightPanel.Visible = false
+        task.wait(0.35)
     else
         if closed then
             toggleMinimize(true)
         end
-        RightPanel.Visible = true
         maximizeSize(0.5)
-        wait(0.5)
-        if rightFadeIn then
-            rightFadeIn()
-        end
+        Anim.panelShow(RightPanel, true)
         bringBackOnResize()
     end
     sideClosing = false
@@ -930,11 +1083,9 @@ end
 
 --- Runs on MouseButton1Click of an event frame
 function eventSelect(frame)
-    if selected and selected.Log  then
+    if selected and selected.Log then
         if selected.Button then
-            spawn(function()
-                TweenService:Create(selected.Button, TweenInfo.new(0.5), {BackgroundColor3 = Color3.fromRGB(0, 0, 0)}):Play()
-            end)
+            Anim.tween(selected.Button, "sel", Anim.Presets.Enter, {BackgroundColor3 = Color3.fromRGB(0, 0, 0)})
         end
         selected = nil
     end
@@ -944,9 +1095,7 @@ function eventSelect(frame)
         end
     end
     if selected and selected.Log then
-        spawn(function()
-            TweenService:Create(frame.Button, TweenInfo.new(0.5), {BackgroundColor3 = Color3.fromRGB(92, 126, 229)}):Play()
-        end)
+        Anim.tween(frame.Button, "sel", Anim.Presets.Pop, {BackgroundColor3 = Color3.fromRGB(92, 126, 229)})
         codebox:setRaw(selected.GenScript)
     end
     if sideClosed then
@@ -1047,6 +1196,9 @@ function newButton(name, description, onClick)
 
     local uiConstraint = Create("UITextSizeConstraint",{Parent = Text,MaxTextSize = 14,MinTextSize = 7})
 
+    Anim.enterCard(FunctionTemplate, Anim.stagger(0.06), 0.7)
+    Anim.micro(FunctionTemplate, Button, Color3.fromRGB(70, 70, 76))
+
     Button.MouseEnter:Connect(function()
         makeToolTip(true, description())
     end)
@@ -1110,6 +1262,17 @@ function newRemote(type, data)
         if selected == log and RemoteTemplate then
             eventSelect(RemoteTemplate)
         end
+    end)
+    -- вход карточки: каскад, микро-UX, свечение под цвет ColorBar
+    Anim.enterCard(RemoteTemplate, Anim.stagger(0.05), 0.75)
+    Anim.micro(RemoteTemplate, Button, Color3.fromRGB(60, 60, 66))
+
+    local glow = Create("UIStroke",{Parent = Text,Thickness = 1,Color = (type == "event" and Color3.fromRGB(255, 242, 0)) or Color3.fromRGB(99, 86, 245),Transparency = 0.75,ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual})
+    Button.MouseEnter:Connect(function()
+        Anim.tween(glow, "g", Anim.Presets.Hover, {Transparency = 0.2})
+    end)
+    Button.MouseLeave:Connect(function()
+        Anim.tween(glow, "g", Anim.Presets.Hover, {Transparency = 0.75})
     end)
     layoutOrderNum -= 1
     table.insert(remoteLogs, 1, {connect, RemoteTemplate})
@@ -1497,7 +1660,10 @@ function i2p(i,customgen)
     if parent == nil then
         return "nil"
     elseif player then
+        local i2pguard = 0;
         while true do
+            i2pguard = i2pguard + 1;
+            if i2pguard > 100 then return '"..[i2p overflow].."'; end
             if parent and parent == player.Character then
                 if player == Players.LocalPlayer then
                     return 'game:GetService("Players").LocalPlayer.Character' .. out
@@ -1515,7 +1681,10 @@ function i2p(i,customgen)
             parent = parent.Parent
         end
     elseif parent ~= game then
+        local i2pguard2 = 0;
         while true do
+            i2pguard2 = i2pguard2 + 1;
+            if i2pguard2 > 100 then return '"..[i2p overflow].."'; end
             if parent and parent.Parent == game then
                 if game:FindService(parent.ClassName) then  -- You arent getting clout off of this
                     if lower(parent.ClassName) == "workspace" then
@@ -1764,10 +1933,13 @@ local function taskscheduler()
         table.remove(scheduled, #scheduled)
     end
     if #scheduled > 0 then
-        local currentf = scheduled[1]
-        table.remove(scheduled, 1)
-        if type(currentf) == "table" and type(currentf[1]) == "function" then
-            pcall(unpack(currentf))
+        for _ = 1, 5 do
+            local currentf = scheduled[1]
+            if not currentf then break; end
+            table.remove(scheduled, 1)
+            if type(currentf) == "table" and type(currentf[1]) == "function" then
+                pcall(unpack(currentf))
+            end
         end
     end
 end
@@ -2009,6 +2181,8 @@ local function shutdown()
     clear(logs)
     clear(remoteLogs)
     disablehooks()
+    -- в shutdown(), перед SimpleSpy3:Destroy()
+    Anim.blur(false)
     SimpleSpy3:Destroy()
     Storage:Destroy()
     UserInputService.MouseIconEnabled = true
@@ -2067,6 +2241,8 @@ if not getgenv().SimpleSpyExecuted then
         schedulerconnect = RunService.Heartbeat:Connect(taskscheduler)
         bringBackOnResize()
         SimpleSpy3.Parent = (gethui and gethui()) or (syn and syn.protect_gui and syn.protect_gui(SimpleSpy3)) or CoreGui
+        -- открытие окна
+        Anim.blur(true)
         logthread(spawn(function()
             local lp = Players.LocalPlayer or Players:GetPropertyChangedSignal("LocalPlayer"):Wait() or Players.LocalPlayer
             generation = {
@@ -2428,203 +2604,132 @@ end)
 
 local saveAllInProgress = false
 
+-- Дедуп по нормализованному replay-коду: одинаковый код = одна группа.
+local function normalizedKey(replay)
+    local k = replay:gsub("0x%x+", "HEX");
+    k = k:gsub("%d+%.%d+", "NUM");
+    k = k:gsub("Vector3%.new%([^)]+%)", "Vector3(NUM)");
+    k = k:gsub("CFrame%.new%([^)]+%)", "CFrame(NUM)");
+    return k;
+end
+
+-- 2. ИНФО (плоский текст: константы-строки, апвелues, args, return, source)
+local function buildFuncInfoFlat(log)
+    local func = log.Function;
+    if typeof(func) ~= "function" then
+        return "-- funcinfo: " .. tostring(func or "unavailable");
+    end
+    local parts = {};
+    local okL, isL = pcall(islclosure, func);
+    if okL and isL == true then
+        local okC, co = pcall(getconstants, func);
+        if okC and type(co) == "table" then
+            local strs = {};
+            for _, c in pairs(co) do
+                if type(c) == "string" then table.insert(strs, c:sub(1, 60)); end
+                if #strs >= 30 then table.insert(strs, "...[cut]"); break; end
+            end
+            table.insert(parts, "-- consts: " .. table.concat(strs, " | "):sub(1, 1500));
+        else
+            table.insert(parts, "-- consts: N/A");
+        end
+        local okU, up = pcall(getupvalues, func);
+        table.insert(parts, "-- upvalues: " .. (okU and tostring(#(up or {})) or "N/A"));
+    else
+        table.insert(parts, "-- C-closure, констант нет");
+    end
+    local okA, sa = pcall(function() return v2v({args = log.args or {}}) end);
+    local aStr = okA and tostring(sa) or ("ERR " .. tostring(sa):sub(1, 100));
+    if string.len(aStr) > 2000 then aStr = aStr:sub(1, 2000) .. "\n-- ...[args cut]"; end
+    table.insert(parts, "-- args:\n" .. aStr);
+    local okR, sr = pcall(function() return v2v({ret = log.returnvalue or {}}) end);
+    local rStr = okR and tostring(sr) or ("ERR " .. tostring(sr):sub(1, 100));
+    if string.len(rStr) > 500 then rStr = rStr:sub(1, 500) .. "-- [ret cut]"; end
+    table.insert(parts, "-- return:\n" .. rStr);
+    local ss = "nil";
+    if log.Source and typeof(log.Source) == "Instance" then
+        local okS, sp = pcall(function() return v2s(log.Source) end);
+        if okS then ss = tostring(sp); end
+    end
+    table.insert(parts, "-- source: " .. ss);
+    return table.concat(parts, "\n");
+end
+
+-- 3. ДЕКОМПИЛЬ (один на группу, резка 6k)
+local function buildDecompFlat(log)
+    if type(decompile) ~= "function" then return "-- decompile: нет функции на executor"; end
+    if not log.Source or typeof(log.Source) ~= "Instance" then return "-- decompile: сорс не пойман"; end
+    if DecompiledScripts[log.Source] then return DecompiledScripts[log.Source]; end
+    local ok, res = pcall(function()
+        local s = decompile(log.Source);
+        if type(s) ~= "string" then error("decompile вернул " .. typeof(s)); end
+        s = s:gsub("-- Decompiled with the Synapse X Luau decompiler.", "");
+        if string.len(s) > 6000 then s = s:sub(1, 6000) .. "\n-- ...[decomp cut 6k]"; end
+        return "local script = " .. tostring(v2s(log.Source)) .. "\n" .. s;
+    end);
+    if not ok then return "-- decompile ERR: " .. tostring(res):sub(1, 150); end
+    DecompiledScripts[log.Source] = res;
+    return res;
+end
+
 local function saveAllRemotesToText()
-    TextLabel.Text = L("stSaveAllWorking")
-
-    local function safeText(label, callback)
-        local ok, value = pcall(callback)
-        if ok then
-            return value == nil and "nil" or tostring(value)
-        end
-        return ("-- %s error: %s"):format(label, tostring(value))
-    end
-
-    local function buildFunctionInfo(log)
-        local func = log.Function
-        if typeof(func) ~= "function" then
-            return tostring(func or "-- Function info unavailable")
-        end
-
-        local function safeValue(label, callback)
-            local ok, value = pcall(callback)
-            if ok then
-                return value
+    TextLabel.Text = "Группирую...";
+    local groups = {};
+    local order = {};
+    for _, log in ipairs(table.clone(logs)) do
+        local okG, replay = pcall(genScript, log.Remote, log.args or {});
+        if okG then
+            local key = normalizedKey(replay);
+            local g = groups[key];
+            if not g then
+                groups[key] = {log = log, replay = replay, count = 1};
+                table.insert(order, key);
+            else
+                g.count = g.count + 1;
             end
-            return ("N/A -- %s error: %s"):format(label, tostring(value))
-        end
-
-        local lclosure = safeValue("islclosure", function()
-            return islclosure(func)
-        end) == true
-        local sourceScript = safeValue("source script", function()
-            return rawget(getfenv(func), "script")
-        end)
-        local callingScript = log.Source or nil
-        local functionInfo = {
-            info = safeValue("getinfo", function()
-                return getinfo(func)
-            end),
-            constants = lclosure and safeValue("getconstants", function()
-                return deepclone(getconstants(func))
-            end) or "N/A -- Lua Closure expected got C Closure",
-            upvalues = lclosure and safeValue("getupvalues", function()
-                return deepclone(getupvalues(func))
-            end) or "N/A -- Lua Closure expected got C Closure",
-            script = {
-                SourceScript = sourceScript or "nil",
-                CallingScript = callingScript or "nil"
-            }
-        }
-
-        if configs.advancedinfo then
-            local remote = log.Remote
-            functionInfo.advancedinfo = {
-                Metamethod = log.metamethod,
-                DebugId = {
-                    SourceScriptDebugId = typeof(sourceScript) == "Instance" and safeValue("source DebugId", function()
-                        return OldDebugId(sourceScript)
-                    end) or "N/A",
-                    CallingScriptDebugId = typeof(callingScript) == "Instance" and safeValue("calling DebugId", function()
-                        return OldDebugId(callingScript)
-                    end) or "N/A",
-                    RemoteDebugId = typeof(remote) == "Instance" and safeValue("remote DebugId", function()
-                        return OldDebugId(remote)
-                    end) or "N/A"
-                },
-                Protos = lclosure and safeValue("getprotos", function()
-                    return getprotos(func)
-                end) or "N/A -- Lua Closure expected got C Closure"
-            }
-        end
-
-        return safeText("FunctionInfo serialization", function()
-            return v2v({functionInfo = functionInfo})
-        end)
-    end
-
-    local function buildDecompile(log)
-        if type(decompile) ~= "function" then
-            return "-- Decompile unavailable: executor does not expose decompile"
-        end
-        if typeof(log.Source) ~= "Instance" then
-            return "-- Decompile unavailable: calling script was not captured"
-        end
-        if DecompiledScripts[log.Source] then
-            return DecompiledScripts[log.Source]
-        end
-
-        local ok, result = pcall(function()
-            local source = decompile(log.Source)
-            if type(source) ~= "string" then
-                error("decompile returned " .. typeof(source))
-            end
-            source = source:gsub("-- Decompiled with the Synapse X Luau decompiler.", "")
-            local sourcePath = safeText("source path", function()
-                return v2s(log.Source)
-            end)
-            return ("local script = %s\n%s"):format(sourcePath, source)
-        end)
-        if not ok then
-            return "-- Decompile error: " .. tostring(result)
-        end
-
-        DecompiledScripts[log.Source] = result
-        return result
-    end
-
-    local seen = {}
-    local sections = {}
-    local count = 0
-    local exportLogs = table.clone(logs)
-
-    for _, log in ipairs(exportLogs) do
-        local uniqueKey = log.DebugId and ("debug:" .. tostring(log.DebugId)) or log.Remote or log
-        if not seen[uniqueKey] then
-            seen[uniqueKey] = true
-            count += 1
-
-            local replayCode = safeText("GenScript", function()
-                return genScript(log.Remote, log.args or {})
-            end)
-            if log.Blocked then
-                replayCode = "-- This Remote was blocked by SimpleSpy\n" .. replayCode
-            end
-
-            local remoteClass = typeof(log.Remote) == "Instance" and log.Remote.ClassName or typeof(log.Remote)
-            local section = table.concat({
-                ("===== REMOTE %d ====="):format(count),
-                "Name: " .. tostring(log.Name),
-                "Class: " .. tostring(remoteClass),
-                "DebugId: " .. tostring(log.DebugId),
-                "Metamethod: " .. tostring(log.metamethod),
-                "Blocked: " .. tostring(log.Blocked == true),
-                "Remote path: " .. safeText("Remote path", function() return v2s(log.Remote) end),
-                "Source path: " .. (log.Source and safeText("Source path", function() return v2s(log.Source) end) or "nil"),
-                "",
-                "--- REPLAY CODE ---",
-                replayCode,
-                "",
-                "--- FUNCTION INFO ---",
-                buildFunctionInfo(log),
-                "",
-                "--- DECOMPILE ---",
-                buildDecompile(log),
-                "",
-                "--- ARGUMENTS ---",
-                safeText("Arguments serialization", function() return v2v({args = log.args or {}}) end),
-                "",
-                "--- RETURN VALUE ---",
-                safeText("Return value serialization", function() return v2v({returnValue = log.returnvalue or {}}) end),
-                ""
-            }, "\n")
-            table.insert(sections, section)
         end
     end
+    local total = #order;
+    if total == 0 then TextLabel.Text = "Логов нет"; return nil; end
 
-    if type(writefile) ~= "function" then
-        error("executor does not expose writefile")
-    end
-
-    local exportFolder = "."
-    if type(isfolder) == "function" and type(makefolder) == "function" then
-        local folderOk = pcall(function()
-            if not isfolder("SimpleSpy") then
-                makefolder("SimpleSpy")
-            end
-            if not isfolder("SimpleSpy/Exports") then
-                makefolder("SimpleSpy/Exports")
-            end
-        end)
-        if folderOk then
-            exportFolder = "SimpleSpy/Exports"
-        end
-    end
-
-    local unixTimestamp = tostring(DateTime.now().UnixTimestampMillis)
-    local dateText = safeText("date", function()
-        return os.date("%Y-%m-%d %H:%M:%S")
-    end)
-    local filename = exportFolder == "."
-        and ("SimpleSpy_All_%s.txt"):format(unixTimestamp)
-        or ("%s/SimpleSpy_All_%s.txt"):format(exportFolder, unixTimestamp)
-    local header = table.concat({
-        "SimpleSpy V3 - Save All",
-        "Date: " .. dateText,
-        "Unique remotes: " .. tostring(count),
-        string.rep("=", 72),
-        ""
-    }, "\n")
-    local output = header .. table.concat(sections, "\n")
-    writefile(filename, output)
-
-    TextLabel.Text = L("stSaveAllFile", count, filename)
+    local exportFolder = ".";
     pcall(function()
-        codebox:setRaw(("Saved %d unique remotes to:\n%s"):format(count, filename))
-    end)
+        if not isfolder("SimpleSpy") then makefolder("SimpleSpy"); end
+        if not isfolder("SimpleSpy/Exports") then makefolder("SimpleSpy/Exports"); end
+        exportFolder = "SimpleSpy/Exports";
+    end);
+    local stamp = tostring(DateTime.now().UnixTimestampMillis);
+    local filename = exportFolder .. "/SimpleSpy_All_" .. stamp .. ".txt";
+    if exportFolder == "." then filename = "SimpleSpy_All_" .. stamp .. ".txt"; end
+    writefile(filename, "SimpleSpy V3 - Save All (dedup by code)\nDate: " .. os.date("%Y-%m-%d %H:%M:%S") .. "\nUnique code groups: " .. tostring(total) .. "\n" .. string.rep("=", 72) .. "\n");
+
+    local idx = 0;
+    while idx < total do
+        local buf = {};
+        for _ = 1, 10 do
+            idx = idx + 1;
+            if idx > total then break; end
+            local g = groups[order[idx]];
+            local log = g.log;
+            local rClass = (typeof(log.Remote) == "Instance") and log.Remote.ClassName or typeof(log.Remote);
+            table.insert(buf, "\n===== GROUP " .. tostring(idx) .. "/" .. tostring(total) .. " (повторов: x" .. tostring(g.count) .. ") =====\n");
+            table.insert(buf, "Name: " .. tostring(log.Name) .. " | Class: " .. tostring(rClass) .. "\n");
+            table.insert(buf, "--- 1. КОД ---\n" .. g.replay .. "\n");
+            table.insert(buf, "--- 2. ИНФО ФУНКЦИИ ---\n" .. buildFuncInfoFlat(log) .. "\n");
+            table.insert(buf, "--- 3. ДЕКОМПИЛЬ ---\n" .. buildDecompFlat(log) .. "\n");
+        end
+        appendfile(filename, table.concat(buf, ""));
+        buf = nil;
+        TextLabel.Text = "Пишу " .. tostring(math.min(idx, total)) .. "/" .. tostring(total) .. "...";
+        task.wait(0.1);
+    end
+
+    TextLabel.Text = "Сохранено групп: " .. tostring(total) .. ". Файл: " .. filename;
+    pcall(function() codebox:setRaw(("Готово. Групп: %d (дедуп по коду).\n%s"):format(total, filename)); end);
     return filename
 end
 
--- Save All button - exports all unique remotes to a text file
+-- Save All button - дедуп по коду, порядок: код -> инфо -> декомпиль
 newButton(
     L("btnSaveAll"),
     function() return L("tipSaveAll") end,
