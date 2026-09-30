@@ -573,7 +573,7 @@ local codeWrap = Create("Frame",{Parent = RightPanel,Name = "CodeWrap",Backgroun
 round(codeWrap, 10)
 line(codeWrap, Theme.line, 1, 0.25)
 local CodeBox = Create("Frame",{Parent = codeWrap,BackgroundTransparency = 1,BorderSizePixel = 0,ClipsDescendants = true,Position = UDim2.new(0, 0, 0, 20),Size = UDim2.new(1, 0, 1, -20),ZIndex = 2})
-local ScrollingFrame = Create("ScrollingFrame",{Parent = RightPanel,Active = true,BackgroundColor3 = Color3.new(1, 1, 1),BackgroundTransparency = 1,BorderSizePixel = 0,ClipsDescendants = true,Position = UDim2.new(0, 8, 0, 8 + LAYOUT.codeH + LAYOUT.gap),Size = UDim2.new(1, -16, 0, LAYOUT.stripH),CanvasSize = UDim2.new(0, 0, 0, 0),ScrollBarThickness = 3,ScrollBarImageColor3 = Theme.accentSoft})
+local ScrollingFrame = Create("ScrollingFrame",{Parent = RightPanel,Active = true,BackgroundColor3 = Color3.new(1, 1, 1),BackgroundTransparency = 1,BorderSizePixel = 0,ClipsDescendants = true,Position = UDim2.new(0, 8, 0, 8 + LAYOUT.codeH + LAYOUT.gap),Size = UDim2.new(1, -16, 0, LAYOUT.stripH),CanvasSize = UDim2.new(0, 0, 0, 0),ScrollBarThickness = 5,ScrollBarImageColor3 = Theme.accentSoft,ScrollingDirection = Enum.ScrollingDirection.Y,VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar})
 local UIGridLayout = Create("UIGridLayout",{Parent = ScrollingFrame,HorizontalAlignment = Enum.HorizontalAlignment.Center,SortOrder = Enum.SortOrder.LayoutOrder,CellPadding = UDim2.new(0, 5, 0, 5),CellSize = UDim2.new(0, 105, 0, 30)})
 
 -- заголовок codebox ("Remote Script" + точка-индикатор)
@@ -1001,7 +1001,7 @@ function toggleMaximize()
             if m.X >= cp.X and m.X <= cp.X + cs.X and m.Y >= cp.Y and m.Y <= cp.Y + cs.Y then return end
             TweenService:Create(codeWrap, TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Size = prevSize, Position = prevPos}):Play()
             TweenService:Create(disable, TweenInfo.new(0.45), {BackgroundTransparency = 1}):Play()
-            wait(0.45)
+            task.wait(0.45)
             disable:Destroy()
             codeWrap.Parent = prevParent
             codeWrap.Size = prevSize
@@ -1213,7 +1213,8 @@ end
 
 --- Updates the canvas size to fit the current amount of function buttons
 function updateFunctionCanvas()
-    ScrollingFrame.CanvasSize = UDim2.fromOffset(UIGridLayout.AbsoluteContentSize.X, UIGridLayout.AbsoluteContentSize.Y)
+    local absSize = UIGridLayout.AbsoluteContentSize
+    ScrollingFrame.CanvasSize = UDim2.fromOffset(0, absSize.Y + 10)
 end
 
 --- Updates the canvas size to fit the amount of current remotes
@@ -2374,6 +2375,7 @@ if not getgenv().SimpleSpyExecuted then
         CloseButton.MouseButton1Click:Connect(shutdown)
         table.insert(connections, UserInputService.InputBegan:Connect(backgroundUserInput))
         SearchBox:GetPropertyChangedSignal("Text"):Connect(applyRemoteFilter)
+        UIGridLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateFunctionCanvas)
         connectResize()
         SimpleSpy3.Enabled = true
         logthread(spawn(function()
@@ -2909,17 +2911,19 @@ newButton(
             return
         end
 
-        saveAllInProgress = true
-        local ok, result = pcall(saveAllRemotesToText)
-        saveAllInProgress = false
+        task.spawn(function()
+            saveAllInProgress = true
+            local ok, result = pcall(saveAllRemotesToText)
+            saveAllInProgress = false
 
-        if not ok then
-            local message = L("stSaveAllErr", tostring(result))
-            TextLabel.Text = message
-            pcall(function()
-                codebox:setRaw(message)
-            end)
-        end
+            if not ok then
+                local message = L("stSaveAllErr", tostring(result))
+                TextLabel.Text = message
+                pcall(function()
+                    codebox:setRaw(message)
+                end)
+            end
+        end)
     end
 )
 
@@ -2947,3 +2951,4 @@ if configs.supersecretdevtoggle then
         NotSound:Play()
     end)
 end
+
