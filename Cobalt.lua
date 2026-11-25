@@ -6953,15 +6953,17 @@ local Pagination = require(Utils.Pagination)
 local CodeGen = require(Utils.CodeGen.Generator)
 local SessionExporter = require(Utils.CodeGen.SessionExporter)
 
--- Save All v6: local, versioned snapshots for AI-assisted script writing.
+-- Save All v7: local, versioned snapshots for AI-assisted script writing.
 -- Collects captured traffic (with command/opcode splitting & buffer hex),
--- function info, world/GUI/player/NPC/keybind state, executor capabilities,
+-- function info, world/GUI/player/NPC/keybind/module-data state, optional
+-- StreamingEnabled map preload & .rbxlx saveinstance dump, executor capabilities,
 -- connections on sensitive signals and a dump of every client script/ModuleScript
 -- (decompiled with safe adaptive concurrency, or bytecode/closure constants),
--- then packs everything into a compact bundle file. Never replays calls or changes hooks.
+-- then packs everything into a compact bundle file. Passive by default; active
+-- map sweep only runs when SaveAllStreamPreload is explicitly enabled.
 local SaveAllExporter = (function()
 	local Exporter = { Busy = false }
-	local FormatVersion = 6
+	local FormatVersion = 7
 	local OwnSource = debug.info(1, "s")
 	local VerifyLimit = 2 * 1024 * 1024
 	local StreamChunk = 256 * 1024
@@ -8392,9 +8394,12 @@ local SaveAllExporter = (function()
 				Remotes = {},
 				RemoteByKey = {},
 				Interactables = {},
+				SeenInteract = {},
 				Buttons = {},
 				Humanoids = {},
+				SeenHumanoids = {},
 				Spawns = {},
+				SeenSpawns = {},
 				ClassCounts = {},
 				Totals = {},
 				NilInstances = nil,
@@ -9871,6 +9876,7 @@ local SaveAllExporter = (function()
 		"getrawmetatable", "setrawmetatable", "setreadonly", "isreadonly", "getnamecallmethod", "setnamecallmethod",
 		"fireproximityprompt", "fireclickdetector", "firetouchinterest", "gethui", "getcustomasset", "readfile",
 		"writefile", "appendfile", "isfile", "isfolder", "makefolder", "listfiles", "delfile", "loadstring",
+		"saveinstance", "SaveInstance",
 		"getthreadidentity", "setthreadidentity", "identifyexecutor", "getfunctionhash", "setclipboard",
 		"queue_on_teleport", "getactors", "run_on_actor", "sethiddenproperty", "gethiddenproperty",
 		"setsimulationradius", "isnetworkowner", "lz4compress", "lz4decompress", "Drawing.new", "WebSocket.connect",
@@ -9927,6 +9933,7 @@ local SaveAllExporter = (function()
 		Info.DecompilerAvailable = type(decompile) == "function"
 		Info.BytecodeAvailable = type(getscriptbytecode) == "function"
 		Info.ConnectionsAvailable = type(getconnections) == "function"
+		Info.SaveInstanceAvailable = type(Util.Global("saveinstance")) == "function" or type(Util.Global("SaveInstance")) == "function"
 		Info.RequestFunction = (type(request) == "function" and "request") or (type(http_request) == "function" and "http_request") or nil
 		Info.Note = "Functions — что есть в окружении (typeof). CobaltChecks — проверки Cobalt (false = функция есть, но работает неправильно)."
 		return Info
@@ -9974,6 +9981,12 @@ local SaveAllExporter = (function()
 		local Workspace = World.Service("Workspace", true)
 		if Workspace then
 			Info.StreamingEnabled = Util.Get(Workspace, "StreamingEnabled")
+			if Info.StreamingEnabled == true then
+				local OutBehavior = Util.Get(Workspace, "StreamOutBehavior")
+				local Integrity = Util.Get(Workspace, "StreamingIntegrityMode")
+				Info.StreamOutBehavior = OutBehavior ~= nil and tostring(OutBehavior) or nil
+				Info.StreamingIntegrityMode = Integrity ~= nil and tostring(Integrity) or nil
+			end
 			Info.Gravity = Util.Get(Workspace, "Gravity")
 			Info.DistributedGameTime = Util.Get(Workspace, "DistributedGameTime")
 			Info.WorkspaceAttributes = World.Attributes(Workspace, 60)
@@ -10144,8 +10157,9 @@ local SaveAllExporter = (function()
 		if not Ok or type(List) ~= "table" then
 			return
 		end
+		local TagLimit = Ctx.Options.FullDump and 2000 or 400
 		for Index, Tag in List do
-			if Index > 400 then
+			if Index > TagLimit then
 				break
 			end
 			Ctx:Yield()
@@ -10212,7 +10226,9 @@ local SaveAllExporter = (function()
 				Scripts.Register(Ctx, Object, ServiceName == "nil" and "nil_parented" or "tree", 6)
 				Notable = true
 			elseif InteractClasses[ClassName] then
-				if #Inventory.Interactables < 20000 then
+				local Key = Describe.Key(Object)
+				if not Inventory.SeenInteract[Key] and #Inventory.Interactables < 20000 then
+					Inventory.SeenInteract[Key] = true
 					table.insert(Inventory.Interactables, { Object = Object, ClassName = ClassName, Service = ServiceName })
 				end
 				Notable = true
@@ -10222,13 +10238,19 @@ local SaveAllExporter = (function()
 					Notable = true
 				end
 			elseif ClassName == "SpawnLocation" then
-				if ServiceName == "Workspace" and #Inventory.Spawns < 200 then
+				local Key = Describe.Key(Object)
+				if ServiceName == "Workspace" and not Inventory.SeenSpawns[Key] and #Inventory.Spawns < 500 then
+					Inventory.SeenSpawns[Key] = true
 					table.insert(Inventory.Spawns, Object)
 				end
 				Notable = true
 			elseif ValueClasses[ClassName] or NotableClasses[ClassName] then
-				if ClassName == "Humanoid" and ServiceName == "Workspace" and #Inventory.Humanoids < 2000 then
-					table.insert(Inventory.Humanoids, Object)
+				if ClassName == "Humanoid" and ServiceName == "Workspace" then
+					local Key = Describe.Key(Object)
+					if not Inventory.SeenHumanoids[Key] and #Inventory.Humanoids < 4000 then
+						Inventory.SeenHumanoids[Key] = true
+						table.insert(Inventory.Humanoids, Object)
+					end
 				end
 				Notable = true
 			end
@@ -10547,32 +10569,39 @@ local SaveAllExporter = (function()
 		end
 		local PlayerGui = LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui") or nil
 		local Character = LocalPlayer and Util.Get(LocalPlayer, "Character") or nil
+		local Full = Ctx.Options.FullDump == true
+		local Depth = Full and 24 or 14
 		Ctx:Progress("Save All: деревья мира", true)
 		World.WriteTree(Ctx, "world/workspace.txt", "Workspace (персонажи игроков вынесены в character.txt)", Only(World.Service("Workspace", true)),
-			{ MaxLines = 5000, Skip = Characters, ShowModelPos = true }, "Дерево Workspace: папки, модели (с координатами), NPC, интерактив, значения; детали свёрнуты.")
+			{ MaxLines = Full and 25000 or 5000, MaxDepth = Depth, Skip = Characters, ShowModelPos = true }, "Дерево Workspace: папки, модели (с координатами), NPC, интерактив, значения; детали свёрнуты.")
 		World.WriteTree(Ctx, "world/replicatedstorage.txt", "ReplicatedStorage", Only(World.Service("ReplicatedStorage")),
-			{ MaxLines = 4000 }, "Дерево ReplicatedStorage: модули, remote'ы, ассеты.")
+			{ MaxLines = Full and 15000 or 4000, MaxDepth = Depth }, "Дерево ReplicatedStorage: модули, remote'ы, ассеты.")
 		World.WriteTree(Ctx, "world/replicatedfirst.txt", "ReplicatedFirst", Only(World.Service("ReplicatedFirst")),
-			{ MaxLines = 800 }, "Дерево ReplicatedFirst.")
+			{ MaxLines = Full and 3000 or 800, MaxDepth = Depth }, "Дерево ReplicatedFirst.")
 		World.WriteTree(Ctx, "world/playergui.txt", "PlayerGui", Only(PlayerGui),
-			{ MaxLines = 4000, ShowAll = true }, "GUI игрока целиком: кнопки, тексты, видимость.")
+			{ MaxLines = Full and 12000 or 4000, MaxDepth = Depth, ShowAll = true }, "GUI игрока целиком: кнопки, тексты, видимость.")
 		World.WriteTree(Ctx, "world/player.txt", "LocalPlayer (без PlayerGui)", Only(LocalPlayer),
-			{ MaxLines = 1500, ShowAll = true, Skip = PlayerGui and { [PlayerGui] = true } or nil }, "LocalPlayer: PlayerScripts, Backpack, leaderstats, значения.")
+			{ MaxLines = Full and 5000 or 1500, MaxDepth = Depth, ShowAll = true, Skip = PlayerGui and { [PlayerGui] = true } or nil }, "LocalPlayer: PlayerScripts, Backpack, leaderstats, значения.")
 		World.WriteTree(Ctx, "world/character.txt", "Персонаж LocalPlayer", Only(Character),
-			{ MaxLines = 800, ShowAll = true }, "Персонаж: части, скрипты, Humanoid, инструменты.")
+			{ MaxLines = Full and 2500 or 800, MaxDepth = Depth, ShowAll = true }, "Персонаж: части, скрипты, Humanoid, инструменты.")
 		World.WriteTree(Ctx, "world/starter.txt", "StarterPlayer + StarterPack", Only(World.Service("StarterPlayer"), World.Service("StarterPack")),
-			{ MaxLines = 1500, ShowAll = true }, "StarterPlayerScripts/StarterCharacterScripts/StarterPack.")
+			{ MaxLines = Full and 6000 or 1500, MaxDepth = Depth, ShowAll = true }, "StarterPlayerScripts/StarterCharacterScripts/StarterPack.")
+		if Full then
+			World.WriteTree(Ctx, "world/startergui.txt", "StarterGui", Only(World.Service("StarterGui")),
+				{ MaxLines = 8000, MaxDepth = Depth, ShowAll = true }, "StarterGui: шаблоны интерфейса игры.")
+		end
 		World.WriteTree(Ctx, "world/misc.txt", "Lighting, Teams, SoundService, Chat, TextChatService",
 			Only(World.Service("Lighting"), World.Service("Teams"), World.Service("SoundService"), World.Service("Chat"), World.Service("TextChatService")),
-			{ MaxLines = 600 }, "Прочие сервисы.")
+			{ MaxLines = Full and 4000 or 600, MaxDepth = Depth }, "Прочие сервисы.")
 
 		local Nil = Ctx.Inventory.NilInstances
 		if Nil and #Nil > 0 then
+			local NilLimit = Full and 15000 or 3000
 			local Writer = Fs.Writer(Ctx, "world/nil.txt", "Инстансы без родителя (getnilinstances): скрипты, remote'ы, спрятанные объекты.")
 			Writer:Push("# Nil-parented instances (getnilinstances): " .. #Nil .. "\n\n")
 			for Index, Object in Nil do
-				if Index > 3000 then
-					Writer:Push("… +" .. (#Nil - 3000) .. "\n")
+				if Index > NilLimit then
+					Writer:Push("… +" .. (#Nil - NilLimit) .. "\n")
 					break
 				end
 				if Index % 100 == 0 then
@@ -11054,9 +11083,10 @@ local SaveAllExporter = (function()
 			"| Id (remotes.json) | Путь | Класс | Вызовов | Клиентские обработчики / callback |",
 			"|---|---|---|---|---|",
 		}
+		local RemoteMdLimit = Ctx.Options.FullDump and 6000 or 2000
 		for Index, Record in Sorted do
-			if Index > 2000 then
-				table.insert(Lines, "| … | +" .. (#Sorted - 2000) .. " в remotes.json | | | |")
+			if Index > RemoteMdLimit then
+				table.insert(Lines, "| … | +" .. (#Sorted - RemoteMdLimit) .. " в remotes.json | | | |")
 				break
 			end
 			local Handlers = Record.ClientHandlers and HandlerText(Record.ClientHandlers) or "—"
@@ -11271,6 +11301,641 @@ local SaveAllExporter = (function()
 				Spawns = Spawns,
 			}, true), "NPC/мобы (Humanoid) и точки спавна в Workspace.")
 		end
+	end
+
+	--==================================================================
+	-- STREAM PRELOAD: прогрузка чанков карты при Workspace.StreamingEnabled
+	-- (RequestStreamAroundAsync доступен только серверу; на клиенте сервер
+	--  догружает чанки вокруг позиции персонажа, поэтому обходим сеткой
+	--  и параллельно собираем скрипты/remote'ы/интерактив/NPC до выгрузки чанков)
+	--==================================================================
+	function World.StreamPreload(Ctx)
+		local Workspace = World.Service("Workspace", true)
+		if not Workspace or Util.Get(Workspace, "StreamingEnabled") ~= true then
+			Ctx.Data.StreamPreload = {
+				StreamingEnabled = false,
+				Note = "StreamingEnabled=false: вся клиентская часть карты уже в памяти (прогрузка не требуется).",
+			}
+			return
+		end
+
+		local LocalPlayer = World.LocalPlayer()
+		local Character = LocalPlayer and Util.Get(LocalPlayer, "Character") or nil
+		local Root = nil
+		if typeof(Character) == "Instance" then
+			Root = Character:FindFirstChild("HumanoidRootPart")
+				or Util.Get(Character, "PrimaryPart")
+				or Character:FindFirstChildWhichIsA("BasePart")
+		end
+		if typeof(Root) ~= "Instance" then
+			Ctx.Data.StreamPreload = {
+				StreamingEnabled = true,
+				Skipped = true,
+				Note = "Нет Character/HumanoidRootPart — прогрузка карты пропущена.",
+			}
+			Ctx:Issue("StreamPreload", "Character/HumanoidRootPart missing; stream preload skipped")
+			return
+		end
+
+		local OrigCFrame = Util.Get(Root, "CFrame")
+		local OrigAnchored = Util.Get(Root, "Anchored")
+		if typeof(OrigCFrame) ~= "CFrame" then
+			Ctx.Data.StreamPreload = { StreamingEnabled = true, Skipped = true, Note = "Не удалось прочитать CFrame персонажа." }
+			return
+		end
+
+		local Options = Ctx.Options
+		local Radius = math.clamp(tonumber(Options.StreamRadius) or 1024, 256, 8192)
+		local Step = math.clamp(tonumber(Options.StreamStep) or 256, 128, 1024)
+		local Timeout = math.clamp(tonumber(Options.StreamTimeout) or 120, 15, 600)
+		local Center = OrigCFrame.Position
+
+		-- оцениваем верхнюю границу загруженной карты, чтобы лететь безопасно над землёй
+		local MinX, MaxX = Center.X - Radius, Center.X + Radius
+		local MinZ, MaxZ = Center.Z - Radius, Center.Z + Radius
+		local TopY = Center.Y
+		local OkParts, InitialList = pcall(function()
+			return Workspace:GetDescendants()
+		end)
+		if OkParts and type(InitialList) == "table" then
+			for Index = 1, #InitialList do
+				if Index % 512 == 0 then
+					Ctx:Yield()
+				end
+				local Obj = InitialList[Index]
+				if IsA(Obj, "BasePart") then
+					local Pos = Util.Get(Obj, "Position")
+					local Size = Util.Get(Obj, "Size")
+					if typeof(Pos) == "Vector3" and typeof(Size) == "Vector3"
+						and Size.Magnitude < 4000 and Pos.Y > -500 and Pos.Y < 4000
+						and math.abs(Pos.X - Center.X) <= Radius * 1.25
+						and math.abs(Pos.Z - Center.Z) <= Radius * 1.25 then
+						if Pos.X < MinX then MinX = Pos.X end
+						if Pos.X > MaxX then MaxX = Pos.X end
+						if Pos.Z < MinZ then MinZ = Pos.Z end
+						if Pos.Z > MaxZ then MaxZ = Pos.Z end
+						local Top = Pos.Y + Size.Y * 0.5
+						if Top > TopY and Top < Center.Y + 600 then
+							TopY = Top
+						end
+					end
+				end
+			end
+		end
+
+		local SpanX = math.max(Step, MaxX - MinX)
+		local SpanZ = math.max(Step, MaxZ - MinZ)
+		local CountX = math.floor(SpanX / Step) + 1
+		local CountZ = math.floor(SpanZ / Step) + 1
+		if CountX * CountZ > 225 then
+			Step = math.ceil(math.sqrt((SpanX * SpanZ) / 200))
+			CountX = math.floor(SpanX / Step) + 1
+			CountZ = math.floor(SpanZ / Step) + 1
+		end
+		local SweepY = math.clamp(math.max(Center.Y + 24, TopY + 18), -200, 1200)
+
+		-- строим змейку так, чтобы прыжки между точками были минимальными
+		local Waypoints = {}
+		for Iz = 0, CountZ - 1 do
+			local Wz = MinZ + Iz * Step
+			local Reverse = (Iz % 2 == 1)
+			for Ix = 0, CountX - 1 do
+				local Col = Reverse and (CountX - 1 - Ix) or Ix
+				local Wx = MinX + Col * Step
+				table.insert(Waypoints, Vector3.new(Wx, SweepY, Wz))
+			end
+		end
+
+		local Inventory = Ctx.Inventory
+		local StreamedRoots, StreamedRootOrder = {}, {}
+		local Stats = {
+			StreamingEnabled = true,
+			Radius = Radius,
+			Step = Step,
+			WaypointsTotal = #Waypoints,
+			WaypointsVisited = 0,
+			StreamedDescendants = 0,
+			NewScripts = 0,
+			NewRemotes = 0,
+			NewInteractables = 0,
+			NewHumanoids = 0,
+			StreamedTopModels = 0,
+			StreamOutBehavior = tostring(Util.Get(Workspace, "StreamOutBehavior")),
+		}
+		local LastAdded = os.clock()
+		local Started = os.clock()
+
+		local function Harvest(Obj)
+			Stats.StreamedDescendants += 1
+			LastAdded = os.clock()
+			if typeof(Obj) ~= "Instance" then
+				return
+			end
+			local ClassName = Obj.ClassName
+			local RemoteKind = RemoteKinds[ClassName]
+			if RemoteKind then
+				local Info = Describe.Instance(Obj)
+				local Key = Info.DebugId or Info.Path
+				if not Inventory.RemoteByKey[Key] then
+					local Entry = { Object = Obj, Info = Info, Key = Key, Kind = RemoteKind, Service = "Workspace" }
+					Inventory.RemoteByKey[Key] = Entry
+					table.insert(Inventory.Remotes, Entry)
+					Stats.NewRemotes += 1
+				end
+			elseif ScriptClasses[ClassName] then
+				local Key = Describe.Key(Obj)
+				local Existed = Ctx.ScriptByKey[Key] ~= nil
+				local Entry = Scripts.Register(Ctx, Obj, "streamed", 5)
+				if Entry then
+					if not Existed then
+						Stats.NewScripts += 1
+					end
+					-- сразу снимаем байткод, пока чанк не успел выгрузиться
+					if not Entry.PreloadedBytecode and type(getscriptbytecode) == "function" then
+						local BcOk, Bc = pcall(getscriptbytecode, Obj)
+						if BcOk and type(Bc) == "string" and #Bc > 0 then
+							Entry.PreloadedBytecode = Bc
+						end
+					end
+				end
+			elseif InteractClasses[ClassName] then
+				local Key = Describe.Key(Obj)
+				if not Inventory.SeenInteract[Key] and #Inventory.Interactables < 20000 then
+					Inventory.SeenInteract[Key] = true
+					table.insert(Inventory.Interactables, { Object = Obj, ClassName = ClassName, Service = "Workspace" })
+					Stats.NewInteractables += 1
+				end
+			elseif ClassName == "Humanoid" then
+				local Key = Describe.Key(Obj)
+				if not Inventory.SeenHumanoids[Key] and #Inventory.Humanoids < 4000 then
+					Inventory.SeenHumanoids[Key] = true
+					table.insert(Inventory.Humanoids, Obj)
+					Stats.NewHumanoids += 1
+				end
+			elseif ClassName == "SpawnLocation" then
+				local Key = Describe.Key(Obj)
+				if not Inventory.SeenSpawns[Key] and #Inventory.Spawns < 500 then
+					Inventory.SeenSpawns[Key] = true
+					table.insert(Inventory.Spawns, Obj)
+				end
+			end
+			if (ClassName == "Model" or ClassName == "Folder") and Obj.Parent == Workspace and #StreamedRootOrder < 4000 then
+				local Key = Describe.Key(Obj)
+				if not StreamedRoots[Key] then
+					local Info = Describe.Instance(Obj)
+					local Rec = {
+						Name = World.Anon(Ctx, Info.Name),
+						ClassName = ClassName,
+						Path = World.Anon(Ctx, Info.Path),
+						Position = World.PositionText(World.PositionOf(Obj)),
+					}
+					StreamedRoots[Key] = Rec
+					table.insert(StreamedRootOrder, Rec)
+					Stats.StreamedTopModels += 1
+				end
+			end
+		end
+
+		local Connection = nil
+		local ConnOk, Conn = pcall(function()
+			return Workspace.DescendantAdded:Connect(function(Obj)
+				pcall(Harvest, Obj)
+			end)
+		end)
+		if ConnOk then
+			Connection = Conn
+		end
+
+		local ZeroVec = Vector3.new(0, 0, 0)
+		local function ZeroVelocity()
+			pcall(function()
+				Root.AssemblyLinearVelocity = ZeroVec
+				Root.AssemblyAngularVelocity = ZeroVec
+			end)
+		end
+
+		local SweepOk, SweepErr = pcall(function()
+			pcall(function()
+				Root.Anchored = true
+			end)
+			ZeroVelocity()
+			for Index, Point in Waypoints do
+				Util.CheckAlive()
+				if Root.Parent == nil then
+					Stats.AbortedReason = "character_removed"
+					break
+				end
+				if os.clock() - Started > Timeout then
+					Stats.AbortedReason = "timeout"
+					break
+				end
+				Ctx:Progress(("Save All: прогрузка карты %d/%d (+%d объектов)"):format(Index, #Waypoints, Stats.StreamedDescendants), Index == 1 or Index % 4 == 0)
+				pcall(function()
+					Root.CFrame = CFrame.new(Point)
+				end)
+				ZeroVelocity()
+				Stats.WaypointsVisited = Index
+				local PointStart = os.clock()
+				task.wait(0.35)
+				while os.clock() - LastAdded < 0.25 and os.clock() - PointStart < 1.5 do
+					Util.CheckAlive()
+					if Root.Parent == nil then
+						break
+					end
+					task.wait(0.12)
+				end
+			end
+		end)
+
+		if Connection then
+			pcall(function()
+				Connection:Disconnect()
+			end)
+		end
+		if Root and Root.Parent ~= nil then
+			pcall(function()
+				Root.CFrame = OrigCFrame
+			end)
+			ZeroVelocity()
+			pcall(function()
+				Root.Anchored = OrigAnchored == true
+			end)
+		end
+
+		Stats.ElapsedSeconds = Util.Round(os.clock() - Started, 2)
+		if not SweepOk then
+			if string.find(tostring(SweepErr), "Cobalt was unloaded", 1, true) then
+				error("Cobalt was unloaded; export stopped", 0)
+			end
+			Stats.AbortedReason = Util.OneLine(tostring(SweepErr), 200)
+			Ctx:Issue("StreamPreload", SweepErr)
+		end
+		if Stats.StreamOutBehavior ~= "Enum.StreamOutBehavior.LowMemory" then
+			Stats.Note = "При StreamOutBehavior=" .. Stats.StreamOutBehavior .. " Roblox мог выгрузить дальние чанки после обхода; все найденные скрипты/remote'ы/интерактив/NPC сохранены инкрементально."
+		end
+		Ctx.Data.StreamPreload = Stats
+
+		if #StreamedRootOrder > 0 then
+			local Writer = Fs.Writer(Ctx, "world/streamed_seen.txt", "Модели и папки первого уровня в Workspace, замеченные при прогрузке карты (даже если позже выгрузились).")
+			Writer:Push(("# Прогруженные объекты Workspace (%d моделей/папок, всего %d потомков за %.1f с)\n\n"):format(
+				#StreamedRootOrder, Stats.StreamedDescendants, Stats.ElapsedSeconds))
+			for _, Rec in StreamedRootOrder do
+				Writer:Push(Rec.Name .. " [" .. Rec.ClassName .. "]" .. (Rec.Position and (" @(" .. Rec.Position .. ")") or "") .. " — " .. Rec.Path .. "\n")
+			end
+			Writer:Finish()
+		end
+	end
+
+	--==================================================================
+	-- LOADED MODULES DATA: безопасный дамп кэшированных таблиц уже загруженных ModuleScript
+	--==================================================================
+	function World.DumpLoadedModules(Ctx)
+		if type(getloadedmodules) ~= "function" then
+			return
+		end
+		local Ok, Modules = pcall(getloadedmodules)
+		if not Ok or type(Modules) ~= "table" then
+			Ctx:Issue("ModulesData", Modules)
+			return
+		end
+		Ctx:Progress("Save All: таблицы загруженных модулей…", true)
+
+		local function ExtractValue(Value, Depth, Budget, Seen)
+			if Budget.Left <= 0 then
+				Budget.Truncated = true
+				return "<limit>", 0, 0
+			end
+			local Kind = typeof(Value)
+			if Kind == "string" then
+				Budget.Left -= 1
+				return Util.Clip(Value, 240), 1, 0
+			elseif Kind == "number" or Kind == "boolean" then
+				Budget.Left -= 1
+				return Value, 1, 0
+			elseif Kind == "nil" then
+				return nil, 0, 0
+			elseif Kind == "function" then
+				return nil, 0, 1
+			elseif Kind == "Instance" then
+				Budget.Left -= 1
+				local Info = Describe.Instance(Value)
+				return Info.ClassName .. "<" .. Info.Path .. ">", 1, 0
+			elseif Kind == "table" then
+				if Seen[Value] then
+					return "<cycle>", 0, 0
+				end
+				if Depth >= 4 then
+					return "<depth>", 0, 0
+				end
+				Seen[Value] = true
+				local Out = {}
+				local Keys, DataCount, FuncCount = 0, 0, 0
+				for Key, Child in next, Value do
+					Keys += 1
+					if Keys > 120 or Budget.Left <= 0 then
+						Out["…"] = "truncated"
+						Budget.Truncated = true
+						break
+					end
+					local KeyText = type(Key) == "string" and Util.Clip(Key, 80) or tostring(Key)
+					local Conv, SubData, SubFuncs = ExtractValue(Child, Depth + 1, Budget, Seen)
+					DataCount += SubData
+					FuncCount += SubFuncs
+					if Conv ~= nil then
+						Out[KeyText] = Conv
+					end
+				end
+				Seen[Value] = nil
+				if FuncCount > 0 and DataCount > 0 then
+					Out["_functions"] = FuncCount
+				end
+				if next(Out) == nil then
+					return nil, DataCount, FuncCount
+				end
+				return Out, DataCount, FuncCount
+			else
+				Budget.Left -= 1
+				local InlineOk, Text = pcall(Values.Inline, Value)
+				return InlineOk and Text or ("<" .. Kind .. ">"), 1, 0
+			end
+		end
+
+		local Dumped, TopNames = Json.Array(), Json.Array()
+		local SkippedCode, Errors, TotalBytes = 0, 0, 0
+		local MaxTotalBytes = 4 * 1024 * 1024
+		local MaxPerModuleBytes = 40 * 1024
+
+		local RealRequire = wax.require or require
+		for Index, Mod in Modules do
+			if Index % 16 == 0 then
+				Ctx:Yield()
+			end
+			if TotalBytes >= MaxTotalBytes then
+				break
+			end
+			if typeof(Mod) ~= "Instance" or Mod.ClassName ~= "ModuleScript" then
+				continue
+			end
+			local Entry = Scripts.Register(Ctx, Mod, "loaded", 4)
+			if not Entry or Scripts.IsCore(Entry) then
+				continue
+			end
+			local ReqOk, Result = pcall(RealRequire, Mod)
+			if not ReqOk then
+				Errors += 1
+				continue
+			end
+			if type(Result) ~= "table" or next(Result) == nil then
+				SkippedCode += 1
+				continue
+			end
+			local Budget = { Left = 800, Truncated = false }
+			local Extracted, DataNodes, FuncCount = ExtractValue(Result, 0, Budget, {})
+			if type(Extracted) ~= "table" or DataNodes == 0 then
+				SkippedCode += 1
+				continue
+			end
+			local Encoded = Json.Encode(Extracted)
+			if #Encoded > MaxPerModuleBytes then
+				-- если модуль слишком большой, сохраняем только верхние ключи и превью
+				local Slim = {}
+				local Kept = 0
+				for K, V in next, Extracted do
+					Kept += 1
+					if Kept > 40 then
+						Slim["…"] = "module larger than 40 KB; see scripts/ for full source"
+						break
+					end
+					Slim[K] = type(V) == "table" and Values.Preview(V, 120) or V
+				end
+				Extracted = Slim
+				Budget.Truncated = true
+				Encoded = Json.Encode(Extracted)
+			end
+			TotalBytes += #Encoded
+			table.insert(Dumped, {
+				ScriptId = Entry.Id,
+				Name = World.Anon(Ctx, Entry.Name),
+				Path = World.Anon(Ctx, Entry.Info.Path),
+				DataNodes = DataNodes,
+				Functions = FuncCount > 0 and FuncCount or nil,
+				Truncated = Budget.Truncated or nil,
+				Data = Extracted,
+			})
+			if #TopNames < 30 then
+				table.insert(TopNames, "#" .. Entry.Id .. " " .. World.Anon(Ctx, Entry.FullName) .. " (" .. DataNodes .. " полей)")
+			end
+		end
+
+		Ctx.Data.ModulesData = {
+			Count = #Dumped,
+			SkippedCodeOnly = SkippedCode,
+			Errors = Errors,
+			TotalBytes = TotalBytes,
+			TopNames = TopNames,
+		}
+		if #Dumped > 0 then
+			Fs.Write(Ctx, "world/modules_data.json", Json.Encode({
+				_meta = {
+					File = "world/modules_data.json",
+					Description = "Кэшированные таблицы данных из уже загруженных ModuleScript (getloadedmodules): списки предметов, врагов, квестов, конфиги и таблицы remote'ов. Модули только с функциями пропущены (их код в scripts/).",
+					Modules = #Dumped,
+					SkippedCodeOnly = SkippedCode,
+					Errors = Errors,
+				},
+				Modules = Dumped,
+			}, false), "Таблицы данных загруженных ModuleScript (конфиги, предметы, карты remote'ов).")
+		end
+	end
+
+	--==================================================================
+	-- SAVEINSTANCE: экспорт клиентского DataModel в .rbxlx / .rbxl
+	--==================================================================
+	local USSIUrl = "https://raw.githubusercontent.com/luau/UniversalSynSaveInstance/main/saveinstance.luau"
+	local USSICachePath = "Cobalt/SaveAll/UniversalSynSaveInstance.luau"
+
+	local function FetchUrlText(Url)
+		local Req = Util.Global("request") or Util.Global("http_request")
+		if type(Req) == "function" then
+			local Ok, Resp = World.WithTimeout(20, Req, { Url = Url, Method = "GET" })
+			if Ok and type(Resp) == "table" and type(Resp.Body) == "string" and #Resp.Body > 0 then
+				local Code = tonumber(Resp.StatusCode)
+				if Resp.Success == true or (Code and Code >= 200 and Code < 300) then
+					return true, Resp.Body
+				end
+				return false, "HTTP " .. tostring(Resp.StatusCode or "error")
+			end
+			return false, tostring(Resp)
+		end
+		local Ok, Body = World.WithTimeout(20, function()
+			return game:HttpGet(Url, true)
+		end)
+		if Ok and type(Body) == "string" and #Body > 0 then
+			return true, Body
+		end
+		return false, tostring(Body)
+	end
+
+	local function LoadUniversalSynSaveInstance(Ctx)
+		local LoadStr = Util.Global("loadstring")
+		if type(LoadStr) ~= "function" then
+			return nil, "loadstring unavailable"
+		end
+		local Code = nil
+		if Fs.IsFile(USSICachePath) then
+			local Ok, Cached = pcall(readfile, USSICachePath)
+			if Ok and type(Cached) == "string" and #Cached > 1000 then
+				Code = Cached
+			end
+		end
+		if not Code then
+			Ctx:Progress("Save All: загрузка UniversalSynSaveInstance…", true)
+			local FetchOk, Body = FetchUrlText(USSIUrl)
+			if not FetchOk or type(Body) ~= "string" or #Body < 1000 then
+				return nil, "failed to download UniversalSynSaveInstance: " .. tostring(Body)
+			end
+			Code = Body
+			pcall(Fs.EnsureFolder, "Cobalt/SaveAll")
+			pcall(writefile, USSICachePath, Code)
+		end
+		local CompileOk, Chunk, CompileErr = pcall(LoadStr, Code, "UniversalSynSaveInstance")
+		if not CompileOk or type(Chunk) ~= "function" then
+			return nil, "compile failed: " .. tostring(CompileErr or Chunk)
+		end
+		local RunOk, SaveFn = pcall(Chunk)
+		if not RunOk or type(SaveFn) ~= "function" then
+			return nil, "init failed: " .. tostring(SaveFn)
+		end
+		return SaveFn, nil
+	end
+
+	local function ListFilesSet(Dir)
+		local Set = {}
+		local ListFn = Util.Global("listfiles")
+		if type(ListFn) ~= "function" then
+			return Set
+		end
+		local Ok, Files = pcall(ListFn, Dir)
+		if Ok and type(Files) == "table" then
+			for _, Path in Files do
+				Set[tostring(Path)] = true
+			end
+		end
+		return Set
+	end
+
+	function World.SaveInstance(Ctx)
+		local Options = Ctx.Options
+		local Mode = tostring(Options.SaveInstanceMode or "Auto")
+		local NativeFn = Util.Global("saveinstance") or Util.Global("SaveInstance")
+		local SaveFn, Provider = nil, nil
+
+		if Mode == "Native" then
+			if type(NativeFn) ~= "function" then
+				Ctx:Issue("SaveInstance", "Native saveinstance() is not provided by this executor (switch SaveAllSaveInstanceMode to Auto or UniversalSynSaveInstance)")
+				Ctx.Data.PlaceFile = { Failed = true, Reason = "native saveinstance unavailable" }
+				return
+			end
+			SaveFn, Provider = NativeFn, "native"
+		elseif Mode == "UniversalSynSaveInstance" then
+			local Fn, Err = LoadUniversalSynSaveInstance(Ctx)
+			if not Fn then
+				Ctx:Issue("SaveInstance", Err)
+				Ctx.Data.PlaceFile = { Failed = true, Reason = tostring(Err) }
+				return
+			end
+			SaveFn, Provider = Fn, "UniversalSynSaveInstance"
+		else
+			if type(NativeFn) == "function" then
+				SaveFn, Provider = NativeFn, "native"
+			else
+				local Fn, Err = LoadUniversalSynSaveInstance(Ctx)
+				if not Fn then
+					Ctx:Issue("SaveInstance", "Native saveinstance unavailable; USSI fallback failed: " .. tostring(Err))
+					Ctx.Data.PlaceFile = { Failed = true, Reason = tostring(Err) }
+					return
+				end
+				SaveFn, Provider = Fn, "UniversalSynSaveInstance"
+			end
+		end
+
+		local BeforeRoot = ListFilesSet("")
+		local BeforeDir = ListFilesSet(Ctx.Path)
+		local TargetBase = Ctx.Path .. "/place"
+		local SaveOpts = {
+			FilePath = TargetBase,
+			FileName = TargetBase,
+			Decompile = Options.Decompile == true,
+			noscripts = not (Options.Decompile == true),
+			NilInstances = true,
+			RemovePlayerCharacters = false,
+			SaveBytecode = true,
+			mode = Options.FullDump and "full" or "optimized",
+			timeout = Options.DecompileTimeout or 20,
+			ShowStatus = false,
+		}
+
+		Ctx:Progress("Save All: SaveInstance (" .. Provider .. ")…", true)
+		Util.CheckAlive()
+		task.wait()
+
+		local Started = os.clock()
+		local Ok, Result = pcall(SaveFn, SaveOpts)
+		local Elapsed = Util.Round(os.clock() - Started, 2)
+
+		local FoundPath = nil
+		for _, Candidate in { TargetBase .. ".rbxlx", TargetBase .. ".rbxl", TargetBase } do
+			if Fs.IsFile(Candidate) then
+				FoundPath = Candidate
+				break
+			end
+		end
+		if not FoundPath then
+			local AfterDir = ListFilesSet(Ctx.Path)
+			for Path in AfterDir do
+				if not BeforeDir[Path] and string.match(string.lower(Path), "%.rbxlx?$") then
+					FoundPath = Path
+					break
+				end
+			end
+		end
+		if not FoundPath then
+			local AfterRoot = ListFilesSet("")
+			for Path in AfterRoot do
+				if not BeforeRoot[Path] and string.match(string.lower(Path), "%.rbxlx?$") then
+					FoundPath = Path
+					break
+				end
+			end
+		end
+
+		if not Ok and not FoundPath then
+			Ctx:Issue("SaveInstance", Provider .. " failed: " .. Util.OneLine(tostring(Result), 300))
+			Ctx.Data.PlaceFile = { Failed = true, Provider = Provider, Seconds = Elapsed, Reason = Util.OneLine(tostring(Result), 300) }
+			return
+		end
+
+		local SizeBytes = nil
+		if FoundPath then
+			local ReadOk, Content = pcall(readfile, FoundPath)
+			if ReadOk and type(Content) == "string" then
+				SizeBytes = #Content
+			end
+			local Normalized = string.gsub(FoundPath, "\\", "/")
+			if string.sub(Normalized, 1, #Ctx.Path + 1) == Ctx.Path .. "/" then
+				local Rel = string.sub(Normalized, #Ctx.Path + 2)
+				Fs.Register(Ctx, Rel, SizeBytes or 0, "Полный файл плейса для Roblox Studio (" .. Provider .. ", не включается в bundle).", { Kind = "place" })
+			end
+		end
+
+		Ctx.Data.PlaceFile = {
+			Path = FoundPath or (TargetBase .. ".rbxlx (путь определяется экзекутором)"),
+			Provider = Provider,
+			Mode = SaveOpts.mode,
+			Bytes = SizeBytes,
+			Seconds = Elapsed,
+			Note = not Ok and Util.OneLine(tostring(Result), 200) or nil,
+		}
 	end
 
 	function World.Run(Ctx)
@@ -11921,6 +12586,9 @@ local SaveAllExporter = (function()
 			if Ok and type(Result) == "string" and #Result > 0 then
 				Bytecode = Result
 			end
+		end
+		if not Bytecode and type(Entry.PreloadedBytecode) == "string" and #Entry.PreloadedBytecode > 0 then
+			Bytecode = Entry.PreloadedBytecode
 		end
 		Entry.BytecodeSize = Bytecode and #Bytecode or nil
 		local HashOk, Hash = Util.Call(getscripthash, Entry.Object)
@@ -12577,6 +13245,33 @@ local SaveAllExporter = (function()
 		if Game.StreamingNote then
 			Add("- " .. Game.StreamingNote)
 		end
+		local StreamPreload = Ctx.Data.StreamPreload
+		if StreamPreload then
+			if StreamPreload.StreamingEnabled == false then
+				Add("- Прогрузка карты: " .. tostring(StreamPreload.Note))
+			elseif StreamPreload.Skipped then
+				Add("- Прогрузка карты пропущена: " .. tostring(StreamPreload.Note))
+			else
+				Add(("- Прогрузка карты: пройдено %d/%d точек (шаг %d, радиус %d) за %.1f с — +%d объектов (+%d скриптов, +%d remote'ов, +%d NPC, +%d интерактива)%s"):format(
+					StreamPreload.WaypointsVisited or 0, StreamPreload.WaypointsTotal or 0,
+					StreamPreload.Step or 0, StreamPreload.Radius or 0, StreamPreload.ElapsedSeconds or 0,
+					StreamPreload.StreamedDescendants or 0, StreamPreload.NewScripts or 0, StreamPreload.NewRemotes or 0,
+					StreamPreload.NewHumanoids or 0, StreamPreload.NewInteractables or 0,
+					StreamPreload.AbortedReason and (" [остановлено: " .. tostring(StreamPreload.AbortedReason) .. "]") or ""))
+			end
+		end
+		local PlaceFile = Ctx.Data.PlaceFile
+		if PlaceFile then
+			if PlaceFile.Failed then
+				Add("- SaveInstance (.rbxlx): ошибка — " .. tostring(PlaceFile.Reason))
+			else
+				Add(("- SaveInstance (%s, %s): `%s`%s за %.1f с"):format(
+					tostring(PlaceFile.Provider or "saveinstance"), tostring(PlaceFile.Mode or "optimized"),
+					Util.Cell(tostring(PlaceFile.Path or "place.rbxlx")),
+					PlaceFile.Bytes and (" (" .. Util.Human(PlaceFile.Bytes) .. " B)") or "",
+					PlaceFile.Seconds or 0))
+			end
+		end
 		Add("- Записей в логе: " .. tostring(Ctx.RawCalls or 0) .. ", групп: " .. #Ctx.Groups .. ", remote'ов с трафиком: " .. #Ctx.Remotes, "")
 
 		local Executor = Ctx.Data.Executor
@@ -12926,6 +13621,19 @@ local SaveAllExporter = (function()
 			Add("")
 		end
 
+		local ModulesData = Ctx.Data.ModulesData
+		if ModulesData and ModulesData.Count and ModulesData.Count > 0 then
+			Add("## Таблицы данных загруженных модулей (world/modules_data.json)", "")
+			Add("- Сдамплено модулей: " .. tostring(ModulesData.Count) .. " (" .. Util.Human(ModulesData.TotalBytes or 0) .. " B); пропущено чисто кодовых: " .. tostring(ModulesData.SkippedCodeOnly or 0))
+			for Index, Label in ModulesData.TopNames or {} do
+				if Index > 20 then
+					break
+				end
+				Add("- " .. Util.Cell(Label))
+			end
+			Add("")
+		end
+
 		if Ctx.ScriptOrder then
 			Add("## Скрипты", "")
 			local Parts = {}
@@ -12958,7 +13666,8 @@ local SaveAllExporter = (function()
 
 	local RecommendedOrder = {
 		"ai_context.md", "remotes.md", "calls.jsonl", "schema.json", "exchanges.jsonl", "world/remotes.md",
-		"world/entities.json", "world/interactables.md", "world/player.json", "security.md", "scripts/INDEX.md", "refs.json", "executor.json",
+		"world/entities.json", "world/interactables.md", "world/player.json", "world/modules_data.json", "world/streamed_seen.txt",
+		"security.md", "scripts/INDEX.md", "refs.json", "executor.json",
 		"world/playergui.txt", "world/replicatedstorage.txt", "world/workspace.txt", "timeline.txt",
 	}
 
@@ -12999,7 +13708,9 @@ local SaveAllExporter = (function()
 			"",
 			"- Только то, что Cobalt успел залогировать с момента запуска; игнорируемые/заблокированные remote'ы и время до запуска не видны.",
 			"- Декомпиляция зависит от экзекутора; при ошибке/таймауте/лимите времени/размере больше " .. tostring(Ctx.Options.DecompileMaxKB) .. " КБ сохраняются строки байткода (`.strings.txt`) или константы closure (`.constants.txt`, работает и при сжатом RSB1). Блокирующий декомпилятор идёт по 1 скрипту с оценкой скорости; асинхронный — автоматически ускоряется до нескольких потоков. Если Roblox завис — при следующем Save All этот скрипт пропускается автоматически (Cobalt/SaveAll/decompile_skip.txt). Готовые декомпиляции кэшируются по экзекутору и хешу (Cobalt/SaveAll/cache).",
-			"- Серверные скрипты на клиенте недоступны (status server_script).",
+			"- Серверные скрипты (ServerScriptService/ServerStorage и Script с RunContext=Legacy/Server) на клиент не реплицируются и недоступны ни Save All, ни SaveInstance (status server_script).",
+			"- Прогрузка карты при StreamingEnabled: RequestStreamAroundAsync работает только на сервере, поэтому опция SaveAllStreamPreload облетает карту персонажем (якорит HumanoidRootPart и возвращает обратно); в играх с серверным анти-телепортом может кикнуть — включай осознанно.",
+			"- SaveInstance сохраняет клиентский плейс в .rbxlx/.rbxl отдельно от .bundle.txt (чтобы не раздувать текстовый файл для ИИ).",
 			"- Ники игроков (Name) заменены на <LocalPlayer>/<PlayerN>, UserId — на <LocalUserId> во всех файлах, кроме исходников в scripts/" .. (Ctx.Options.Anonymize and "" or " (сейчас выключено)") .. ". Системные и короткие слова (<4 символов) глобально не трогаются, чтобы не портить JSON и пути.",
 			"- При StreamingEnabled дерево workspace неполное. Античит — эвристика по ключевым словам.",
 			"",
@@ -13041,6 +13752,7 @@ local SaveAllExporter = (function()
 			DecompileSeconds = Ctx.ScriptState and Util.Round(Ctx.ScriptState.Seconds, 1) or nil,
 			WorldRemotes = #Inventory.Remotes,
 			NpcGroups = Ctx.Data.Entities and #Ctx.Data.Entities.Npcs or 0,
+			ModulesData = Ctx.Data.ModulesData and Ctx.Data.ModulesData.Count or 0,
 			Interactables = #Inventory.Interactables,
 			GuiButtons = #Inventory.Buttons,
 			NilInstances = Inventory.NilInstances and #Inventory.NilInstances or nil,
@@ -13087,6 +13799,8 @@ local SaveAllExporter = (function()
 			Timings = Ctx.Timings,
 			Phases = Ctx.Phases,
 			Issues = Ctx.Issues,
+			StreamPreload = Ctx.Data.StreamPreload,
+			PlaceFile = Ctx.Data.PlaceFile,
 			Bundle = Ctx.BundleInfo,
 		}, true), "Версия, настройки, счётчики, время фаз и ошибки экспорта.")
 	end
@@ -13144,7 +13858,7 @@ local SaveAllExporter = (function()
 		local Order, Added = {}, {}
 		local function AddPath(Path)
 			local File = Ctx.FileIndex[Path]
-			if not File or Added[Path] or Path == "snapshot.txt" then
+			if not File or Added[Path] or Path == "snapshot.txt" or File.Kind == "place" or string.match(string.lower(Path), "%.rbxlx?$") then
 				return
 			end
 			if Compact and CompactBundleSkip[Path] then
@@ -13326,6 +14040,14 @@ local SaveAllExporter = (function()
 			DecompileCache = Setting("SaveAllDecompileCache", true) ~= false,
 			DecompileConcurrency = tostring(Setting("SaveAllDecompileConcurrency", "Auto")),
 			BundlePartMB = NumberSetting("SaveAllBundlePartMB", 16, 1, 512),
+			FullDump = Setting("SaveAllFullDump", false) == true,
+			DumpModules = Setting("SaveAllDumpModules", false) == true,
+			SaveInstance = Setting("SaveAllSaveInstance", false) == true,
+			SaveInstanceMode = tostring(Setting("SaveAllSaveInstanceMode", "Auto")),
+			StreamPreload = Setting("SaveAllStreamPreload", false) == true,
+			StreamRadius = NumberSetting("SaveAllStreamRadius", 1024, 256, 8192),
+			StreamStep = NumberSetting("SaveAllStreamStep", 256, 128, 1024),
+			StreamTimeout = NumberSetting("SaveAllStreamTimeout", 120, 15, 600),
 		}
 		if Options == false then
 			Resolved.Decompile = false
@@ -13336,6 +14058,9 @@ local SaveAllExporter = (function()
 		end
 		if Resolved.Dedup ~= "Shape" and Resolved.Dedup ~= "Exact" and Resolved.Dedup ~= "Off" then
 			Resolved.Dedup = "Shape"
+		end
+		if Resolved.SaveInstanceMode ~= "Auto" and Resolved.SaveInstanceMode ~= "Native" and Resolved.SaveInstanceMode ~= "UniversalSynSaveInstance" then
+			Resolved.SaveInstanceMode = "Auto"
 		end
 		return Resolved
 	end
@@ -13420,9 +14145,24 @@ local SaveAllExporter = (function()
 		Ctx:Phase("environment", function()
 			World.Environment(Ctx)
 		end)
+		if Options.StreamPreload then
+			Ctx:Phase("place.stream_preload", function()
+				World.StreamPreload(Ctx)
+			end)
+		end
 		if Options.World then
 			Ctx:Phase("world", function()
 				World.Run(Ctx)
+			end)
+		end
+		if Options.DumpModules then
+			Ctx:Phase("world.modules_data", function()
+				World.DumpLoadedModules(Ctx)
+			end)
+		end
+		if Options.SaveInstance then
+			Ctx:Phase("place.saveinstance", function()
+				World.SaveInstance(Ctx)
 			end)
 		end
 		Docs.Write(Ctx, false)
@@ -13471,6 +14211,7 @@ local SaveAllExporter = (function()
 			FailedPhases = Ctx.FailedPhases,
 			Bundle = Ctx.BundleInfo and Ctx.BundleInfo.Main or nil,
 			BundleParts = Ctx.BundleInfo and #Ctx.BundleInfo.Parts or 0,
+			PlaceFile = Ctx.Data.PlaceFile and not Ctx.Data.PlaceFile.Failed and Ctx.Data.PlaceFile.Path or nil,
 		}
 	end
 
@@ -13486,6 +14227,9 @@ local SaveAllExporter = (function()
 			Result.Groups, Result.RawCalls, Result.Scripts, Result.Decompiled, Result.Issues, tostring(Result.Bundle or (Result.Path .. "/README.md")))
 		if Result.BundleParts > 1 then
 			Text ..= " (+" .. (Result.BundleParts - 1) .. " частей)"
+		end
+		if Result.PlaceFile then
+			Text ..= " + " .. tostring(Result.PlaceFile)
 		end
 		if ForFormat then
 			return (string.gsub(Text, "%%", "%%%%"))
@@ -15786,10 +16530,56 @@ LoggingSection:CreateDropdown("SaveAllBundlePartMB", {
 	Default = "16",
 })
 
+LoggingSection:CreateCheckbox("SaveAllFullDump", {
+	Text = "Save All: full dump (extended trees + StarterGui + all tags)",
+	Default = false,
+})
+
+LoggingSection:CreateCheckbox("SaveAllDumpModules", {
+	Text = "Save All: dump loaded ModuleScript data tables (modules_data.json)",
+	Default = false,
+})
+
+LoggingSection:CreateCheckbox("SaveAllSaveInstance", {
+	Text = "Save All: also save client place via saveinstance (.rbxlx)",
+	Default = false,
+})
+
+LoggingSection:CreateDropdown("SaveAllSaveInstanceMode", {
+	Text = "Save All: saveinstance provider",
+	Values = { "Auto", "Native", "UniversalSynSaveInstance" },
+	Default = "Auto",
+})
+
+LoggingSection:CreateCheckbox("SaveAllStreamPreload", {
+	Text = "Save All: sweep map to preload StreamingEnabled chunks (moves character!)",
+	Default = false,
+})
+
+LoggingSection:CreateDropdown("SaveAllStreamRadius", {
+	Text = "Save All: map preload radius (studs)",
+	Values = { "512", "1024", "2048", "4096" },
+	Default = "1024",
+})
+
+LoggingSection:CreateDropdown("SaveAllStreamStep", {
+	Text = "Save All: map preload grid step (studs)",
+	Values = { "192", "256", "384", "512" },
+	Default = "256",
+})
+
 LoggingSection:CreateButton("Сохранить всё / Save All", function()
 	SaveAllExporter:Start()
 end, 14)
-LoggingSection:AddLabel("Save All: Cobalt/Exports/<folder> + <folder>.bundle.txt (send the bundle to AI)")
+
+LoggingSection:CreateButton("Полный дамп + SaveInstance (.rbxlx)", function()
+	SaveAllExporter:Start({ FullDump = true, DumpModules = true, SaveInstance = true })
+end, 14)
+
+LoggingSection:CreateButton("Полный дамп + Прогрузка карты + Place", function()
+	SaveAllExporter:Start({ FullDump = true, DumpModules = true, SaveInstance = true, StreamPreload = true })
+end, 14)
+LoggingSection:AddLabel("Save All: Cobalt/Exports/<folder> + <folder>.bundle.txt (+ place.rbxlx)")
 
 LoggingSection:CreateButton("Export Logs to HTML", function()
 	wax.shared.Sonner.promise(function(UpdateProgress)
@@ -15998,6 +16788,16 @@ local DefaultFooterButtons = {
 				Text = "Без скриптов (быстро)",
 				Icon = "zap",
 				Callback = function() SaveAllExporter:Start({ Scripts = false, Decompile = false }) end,
+			},
+			{
+				Text = "Полный дамп + Place (.rbxlx)",
+				Icon = "hard-drive",
+				Callback = function() SaveAllExporter:Start({ FullDump = true, DumpModules = true, SaveInstance = true }) end,
+			},
+			{
+				Text = "Полный дамп + Прогрузка + Place",
+				Icon = "globe",
+				Callback = function() SaveAllExporter:Start({ FullDump = true, DumpModules = true, SaveInstance = true, StreamPreload = true }) end,
 			},
 		},
 	},
